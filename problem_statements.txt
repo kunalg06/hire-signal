@@ -1,0 +1,39 @@
+Easy Level
+
+Build a simple note-taking API with CRUD operations. Users can create, read, update, and delete notes. Each note has a title, content, and creation date. Store notes in an in-memory list. Include basic error handling for invalid requests.
+
+Create a temperature converter API that accepts Celsius input and returns Fahrenheit, Kelvin, and Rankine values. Include input validation to reject invalid temperatures (below absolute zero). Return results in JSON format with precision to 2 decimal places.
+
+Medium Level
+
+Build a REST API for a library management system that handles book inventory, borrowing, and returns. Features required: add/remove books, track availability status, check out books to users (max 5 per user), return books with overdue tracking. Implement business rules: books can't be borrowed if unavailable, users can't borrow if they have overdue items. Persist data in-memory with timestamps.
+
+Create a multi-currency exchange API that maintains exchange rates and performs conversions. Support at least 10 currencies. Handle concurrent requests from multiple clients converting currencies. Implement caching of exchange rates with a 1-hour TTL. Include validation for invalid currency codes and amounts. Log all conversion requests with timestamps.
+
+Hard Level
+
+Design a real-time multiplayer game server API for a turn-based chess application. Requirements: create games between two players, handle concurrent move validation (ensure moves follow chess rules), implement timeout mechanisms (30 seconds per turn), handle disconnection and reconnection gracefully, track game history and statistics, support simultaneous games for different player pairs. Implement optimistic locking to prevent race conditions on concurrent moves. Include authentication to prevent unauthorized access to games.
+
+Build a distributed task queue API for a job processing system that handles priority queues, worker management, and failure retry logic. Features: submit jobs with priority levels (high/medium/low), assign jobs to workers with load balancing, implement exponential backoff for failed jobs (retry up to 3 times), track job status (pending, processing, completed, failed), handle worker heartbeat/timeout (mark workers dead after 30 seconds inactivity), implement dead letter queue for permanently failed jobs. Must handle thousands of concurrent jobs and workers. Include idempotency for duplicate job submissions.
+
+Create a real-time analytics dashboard API that aggregates data from multiple sources, implements caching strategies, and handles high-volume concurrent requests. Requirements: stream real-time metrics, support time-series data aggregation (hourly, daily, weekly summaries), implement rolling window calculations, handle data retention policies (delete data older than 90 days), support user-defined alerts (trigger when metrics exceed thresholds), implement rate limiting per API key. Must process 10,000+ requests/second with sub-100ms response times. Include pagination for large datasets and support filters/sorting.
+
+Build an event-driven microservice API for an e-commerce platform that processes orders with complex workflow validation. Features: create orders with inventory deduction (handle race conditions), process payments with webhook handling, implement saga pattern for distributed transactions (order → payment → inventory → shipping), handle payment failures and rollback, support order cancellation with refund processing, track order status across multiple services, implement eventual consistency with message queues. Include audit logging for all state changes, support idempotent operations, and handle network timeouts gracefully.
+
+Create a secure authentication and authorization API with token management and role-based access control. Requirements: implement JWT token generation with refresh tokens, support OAuth2 flow, handle token revocation (blacklist), implement multi-factor authentication (MFA), support role-based access control (RBAC) with permissions, log all authentication attempts, implement rate limiting on login attempts (5 attempts, 15-minute lockout), support password reset with email verification, handle concurrent sessions per user, implement secure password hashing with salt. Include compliance with security standards (OWASP top 10).
+
+🎯 Recommended Test Flow
+
+1. Start with Easy: "Temperature converter API..." (quick, low risk)
+2. Progress to Medium: "Library management system..." (validates business logic)
+3. Test Hard: "Multiplayer chess game server..." (complex concurrency, full-stack)
+4. Edge Case: "Real-time analytics dashboard..." (high-volume, performance-critical)
+
+---
+Pro Tips for Testing:
+
+✅ Try different problem lengths — short vs. detailed descriptions
+✅ Test edge cases — what happens with vague statements like "Build an API"?
+✅ Verify output quality — does generated starter code actually run?
+✅ Compare difficulty levels — does "hard" actually include security/concurrency?
+✅ Check evaluation criteria — are edge cases listed for each difficulty?

@@ -1,0 +1,364 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Assignment - VS Code</title>
+    <style>
+        * { margin: 0; padding: 0; box-sizing: border-box; }
+        body {
+            margin: 0;
+            padding: 0;
+            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+            height: 100vh;
+            overflow: hidden;
+            background: #f5f5f5;
+        }
+
+        .container {
+            display: flex;
+            flex-direction: column;
+            height: 100vh;
+        }
+
+        .header {
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            color: white;
+            padding: 15px 20px;
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            box-shadow: 0 4px 12px rgba(0,0,0,0.15);
+            z-index: 100;
+        }
+
+        .header h1 {
+            font-size: 18px;
+            font-weight: 600;
+        }
+
+        .header-actions {
+            display: flex;
+            gap: 10px;
+            align-items: center;
+        }
+
+        .timer {
+            font-size: 14px;
+            opacity: 0.9;
+            margin-right: 10px;
+        }
+
+        #submit-btn {
+            background: white;
+            color: #667eea;
+            border: none;
+            padding: 10px 20px;
+            border-radius: 6px;
+            font-size: 14px;
+            font-weight: 600;
+            cursor: pointer;
+            transition: all 0.3s ease;
+            display: flex;
+            align-items: center;
+            gap: 8px;
+        }
+
+        #submit-btn:hover:not(:disabled) {
+            transform: translateY(-2px);
+            box-shadow: 0 6px 16px rgba(255,255,255,0.3);
+        }
+
+        #submit-btn:disabled {
+            opacity: 0.6;
+            cursor: not-allowed;
+        }
+
+        .code-editor {
+            flex: 1;
+            overflow: hidden;
+        }
+
+        iframe {
+            width: 100%;
+            height: 100%;
+            border: none;
+        }
+
+        .modal-overlay {
+            position: fixed;
+            top: 0;
+            left: 0;
+            right: 0;
+            bottom: 0;
+            background: rgba(0, 0, 0, 0.7);
+            z-index: 10000;
+            display: none;
+            align-items: center;
+            justify-content: center;
+        }
+
+        .modal-overlay.active {
+            display: flex;
+        }
+
+        .modal {
+            background: white;
+            padding: 40px;
+            border-radius: 12px;
+            box-shadow: 0 20px 60px rgba(0,0,0,0.3);
+            max-width: 500px;
+            width: 90%;
+            text-align: center;
+            animation: slideIn 0.3s ease;
+        }
+
+        @keyframes slideIn {
+            from {
+                opacity: 0;
+                transform: translateY(-20px);
+            }
+            to {
+                opacity: 1;
+                transform: translateY(0);
+            }
+        }
+
+        .modal h2 {
+            color: #28a745;
+            margin-bottom: 20px;
+            font-size: 24px;
+        }
+
+        .modal-icon {
+            font-size: 48px;
+            margin-bottom: 15px;
+        }
+
+        .score-display {
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            color: white;
+            padding: 25px;
+            border-radius: 8px;
+            margin: 20px 0;
+        }
+
+        .score-value {
+            font-size: 56px;
+            font-weight: bold;
+            margin-bottom: 5px;
+        }
+
+        .feedback {
+            background: #f8f9fa;
+            padding: 20px;
+            border-radius: 8px;
+            margin: 20px 0;
+            max-height: 300px;
+            overflow-y: auto;
+            text-align: left;
+            font-size: 14px;
+            color: #666;
+            line-height: 1.6;
+        }
+
+        .modal button {
+            background: #667eea;
+            color: white;
+            border: none;
+            padding: 12px 30px;
+            border-radius: 6px;
+            font-size: 16px;
+            font-weight: 600;
+            cursor: pointer;
+            transition: all 0.3s ease;
+            width: 100%;
+            margin-top: 15px;
+        }
+
+        .modal button:hover {
+            background: #5568d3;
+            transform: translateY(-2px);
+        }
+
+        .loading {
+            display: none;
+            text-align: center;
+        }
+
+        .loading.active {
+            display: block;
+        }
+
+        .spinner {
+            border: 4px solid #f3f3f3;
+            border-top: 4px solid #667eea;
+            border-radius: 50%;
+            width: 40px;
+            height: 40px;
+            animation: spin 1s linear infinite;
+            margin: 20px auto;
+        }
+
+        @keyframes spin {
+            0% { transform: rotate(0deg); }
+            100% { transform: rotate(360deg); }
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <div class="header">
+            <h1>📝 Assignment Workspace</h1>
+            <div class="header-actions">
+                <div class="timer">Session: <span id="timer">--:--:--</span></div>
+                <button id="submit-btn">📤 Submit Solution</button>
+            </div>
+        </div>
+
+        <div class="code-editor">
+            <iframe id="codeserver-frame"></iframe>
+        </div>
+    </div>
+
+    <!-- Results Modal -->
+    <div id="modal-overlay" class="modal-overlay">
+        <div class="modal">
+            <div class="loading active" id="loading-state">
+                <div class="spinner"></div>
+                <p>Evaluating your solution...</p>
+            </div>
+
+            <div id="results-state" style="display: none;">
+                <div class="modal-icon">✅</div>
+                <h2>Submission Successful!</h2>
+                <div class="score-display">
+                    <div class="score-value" id="score-display">--</div>
+                    <div>Score / 100</div>
+                </div>
+                <div class="feedback" id="feedback-display">Feedback loading...</div>
+                <button onclick="closeAndRedirect()">Done</button>
+            </div>
+        </div>
+    </div>
+
+    <script>
+        // Get link_id from URL path (/codeserver/{link_id})
+        const pathParts = window.location.pathname.split('/').filter(p => p);
+        const linkId = pathParts[pathParts.length - 1];
+        let expiresAt = null;
+
+        console.log('Path:', window.location.pathname);
+        console.log('Parts:', pathParts);
+        console.log('LinkId:', linkId);
+
+        if (!linkId || linkId === 'codeserver') {
+            alert('Error: No assignment link provided. Path: ' + window.location.pathname);
+            window.location.href = 'http://localhost:8000/frontend.html';
+        }
+
+        // Fetch the correct code-server port from backend API
+        async function loadCodeServer() {
+            try {
+                const response = await fetch(`http://localhost:8000/api/session/${linkId}`);
+                if (!response.ok) {
+                    throw new Error(`API Error: ${response.status}`);
+                }
+                const session = await response.json();
+                console.log('Session data:', session);
+                const port = session.vscode_port;
+                expiresAt = session.expires_at;
+                document.getElementById('codeserver-frame').src = `//${window.location.hostname}:${port}/?folder=/workspace`;
+                console.log('Frame loaded from port:', port);
+                console.log('Expires at:', expiresAt);
+
+                // Initialize timer after getting expiration time
+                if (expiresAt) {
+                    const expiryTime = new Date(expiresAt).getTime();
+                    setInterval(updateTimer, 1000);
+                    updateTimer();
+
+                    function updateTimer() {
+                        const now = new Date().getTime();
+                        const remaining = expiryTime - now;
+
+                        if (remaining <= 0) {
+                            document.getElementById('timer').textContent = 'Expired';
+                        } else {
+                            const hours = Math.floor(remaining / (1000 * 60 * 60));
+                            const minutes = Math.floor((remaining % (1000 * 60 * 60)) / (1000 * 60));
+                            const seconds = Math.floor((remaining % (1000 * 60)) / 1000);
+                            document.getElementById('timer').textContent =
+                                `${hours}:${String(minutes).padStart(2, '0')}:${String(seconds).padStart(2, '0')}`;
+                        }
+                    }
+                }
+            } catch (error) {
+                console.error('Error loading code-server:', error);
+                alert('Error loading code-server: ' + error.message);
+            }
+        }
+        loadCodeServer();
+
+        // Submit button handler
+        document.getElementById('submit-btn').addEventListener('click', submitSolution);
+
+        async function submitSolution() {
+            const btn = document.getElementById('submit-btn');
+            btn.disabled = true;
+            btn.innerHTML = '⏳ Processing...';
+
+            try {
+                // Show modal with loading state
+                document.getElementById('modal-overlay').classList.add('active');
+
+                // Call backend to retrieve files and evaluate
+                const response = await fetch(`http://localhost:8000/api/submit-code/${linkId}`, {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' }
+                });
+
+                if (!response.ok) {
+                    throw new Error(`Evaluation failed: ${response.statusText}`);
+                }
+
+                const result = await response.json();
+
+                // Hide loading, show results
+                document.getElementById('loading-state').classList.remove('active');
+                document.getElementById('results-state').style.display = 'block';
+                document.getElementById('score-display').textContent = Math.round(result.score);
+                document.getElementById('feedback-display').textContent = result.feedback;
+
+                // Close container after 10 seconds
+                setTimeout(() => {
+                    closeContainer();
+                }, 10000);
+
+            } catch (error) {
+                document.getElementById('modal-overlay').classList.remove('active');
+                btn.disabled = false;
+                btn.innerHTML = '❌ Error - Try Again';
+                console.error('Submission error:', error);
+                alert('Error submitting: ' + error.message);
+            }
+        }
+
+        function closeContainer() {
+            fetch(`http://localhost:8000/api/close-container/${linkId}`, { method: 'POST' })
+                .then(() => {
+                    alert('Session closed. Redirecting to dashboard...');
+                    window.location.href = 'http://localhost:8000/frontend.html';
+                })
+                .catch(err => {
+                    console.error('Error closing container:', err);
+                    window.location.href = 'http://localhost:8000/frontend.html';
+                });
+        }
+
+        function closeAndRedirect() {
+            closeContainer();
+        }
+    </script>
+</body>
+</html>

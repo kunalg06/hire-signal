@@ -1,0 +1,84 @@
+version: '3.8'
+
+services:
+  # Code Server Image Builder
+  codeserver:
+    build:
+      context: .
+      dockerfile: Dockerfile.codeserver
+    image: code-server-http:latest
+    container_name: code-server-builder-only
+    entrypoint: "echo 'Image built successfully'"
+
+  # Docker Socket Proxy (for Windows/Mac Docker Desktop compatibility)
+  docker-proxy:
+    image: tecnativa/docker-socket-proxy:latest
+    container_name: docker-socket-proxy
+    volumes:
+      - /var/run/docker.sock:/var/run/docker.sock
+    environment:
+      - CONTAINERS=1
+      - IMAGES=1
+      - POST=1
+    networks:
+      - assignment-network
+    restart: unless-stopped
+
+  # FastAPI Backend
+  backend:
+    build:
+      context: .
+      dockerfile: Dockerfile.backend
+    container_name: claude-assignment-backend
+    ports:
+      - "8000:8000"
+    environment:
+      - ANTHROPIC_API_KEY=${ANTHROPIC_API_KEY}
+      - DATABASE_URL=sqlite:///./assignments.db
+      - DOCKER_HOST=tcp://docker-proxy:2375
+    volumes:
+      # Mount local data directory
+      - ./data:/app/data
+      # Mount assignments volume (shared with codeserver containers)
+      - assignments_volume:/app/assignments
+      # Mount docker socket for direct access
+      - /var/run/docker.sock:/var/run/docker.sock
+    depends_on:
+      - docker-proxy
+      - postgres
+      - codeserver
+    networks:
+      - assignment-network
+    restart: unless-stopped
+
+  # PostgreSQL Database (optional - for production use case)
+  postgres:
+    image: postgres:15-alpine
+    container_name: claude-assignment-db
+    environment:
+      - POSTGRES_USER=assignment_user
+      - POSTGRES_PASSWORD=${DB_PASSWORD:-changeme}
+      - POSTGRES_DB=assignments
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+    networks:
+      - assignment-network
+    restart: unless-stopped
+
+  # Redis for caching (optional)
+  redis:
+    image: redis:7-alpine
+    container_name: claude-assignment-cache
+    ports:
+      - "6379:6379"
+    networks:
+      - assignment-network
+    restart: unless-stopped
+
+networks:
+  assignment-network:
+    driver: bridge
+
+volumes:
+  postgres_data:
+  assignments_volume:
