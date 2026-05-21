@@ -16,13 +16,12 @@ RUN npm install -g @anthropic-ai/claude-code
 # Install Python dependencies
 RUN pip3 install --break-system-packages anthropic requests
 
-# Copy startup script and submit button script
+# Copy startup script
 COPY start-services.py /app/start-services.py
-COPY submit-button.js /app/submit-button.js
-RUN chmod +x /app/start-services.py && chmod 777 /app/submit-button.js
+RUN chmod +x /app/start-services.py
 
-# Set workspace permissions
-RUN mkdir -p /workspace && chmod 777 /workspace
+# Set workspace and log directory permissions
+RUN mkdir -p /workspace /app/logs && chmod 777 /workspace /app/logs
 
 USER coder
 
@@ -31,11 +30,6 @@ RUN mkdir -p ~/.config/code-server && \
     echo "bind-addr: 0.0.0.0:8080" > ~/.config/code-server/config.yaml && \
     echo "auth: none" >> ~/.config/code-server/config.yaml && \
     echo "cert: false" >> ~/.config/code-server/config.yaml
-
-# Create initialization script to inject submit button
-RUN mkdir -p ~/.config/code-server/extensions && \
-    echo "window.LINK_ID = new URLSearchParams(window.location.search).get('link_id');" > /tmp/inject.js && \
-    echo "window.BACKEND_URL = 'http://localhost:8000';" >> /tmp/inject.js
 
 EXPOSE 8080
 WORKDIR /workspace

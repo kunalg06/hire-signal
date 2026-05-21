@@ -975,38 +975,83 @@ async def submit_with_files(link_id: str, background_tasks: BackgroundTasks):
         if docker_client:
             container = docker_client.containers.get(container_id)
 
-            # Get solution.py
-            try:
-                result = container.exec_run('cat /workspace/solution.py')
-                if result.exit_code == 0:
-                    files_dict['solution.py'] = result.output.decode('utf-8')
-            except:
-                pass
+            # Helper function to safely read file from container
+            def read_file_from_container(file_path):
+                try:
+                    bits, stat = container.get_archive(file_path)
+                    import tarfile
+                    import io
+                    tar_stream = io.BytesIO(b''.join(bits))
+                    tar = tarfile.open(fileobj=tar_stream)
+                    extracted = tar.extractall()
+
+                    # Get the filename from path
+                    filename = file_path.split('/')[-1]
+
+                    # Read the file content
+                    result = container.exec_run(f'cat {file_path}')
+                    if result.exit_code == 0:
+                        return result.output.decode('utf-8', errors='ignore')
+                except Exception as e:
+                    print(f"Could not read {file_path}: {e}")
+                    return None
+
+            # Get solution.py (most important file)
+            solution_content = read_file_from_container('/workspace/solution.py')
+            if solution_content:
+                files_dict['solution.py'] = solution_content
+                print(f"✓ Retrieved solution.py ({len(solution_content)} bytes)")
+            else:
+                # Fallback: try to get all files in workspace
+                try:
+                    result = container.exec_run('ls -la /workspace/')
+                    print(f"Workspace files: {result.output.decode('utf-8', errors='ignore')}")
+                except:
+                    pass
 
             # Get instructions.md
-            try:
-                result = container.exec_run('cat /workspace/instructions.md')
-                if result.exit_code == 0:
-                    files_dict['instructions.md'] = result.output.decode('utf-8')
-            except:
-                pass
+            instructions_content = read_file_from_container('/workspace/instructions.md')
+            if instructions_content:
+                files_dict['instructions.md'] = instructions_content
 
-            # Try to get claude session log
-            try:
-                result = container.exec_run('cat /tmp/claude_session.log 2>/dev/null || echo "No session log"')
-                if result.exit_code == 0:
-                    log_content = result.output.decode('utf-8')
-                    if log_content.strip() != "No session log":
-                        files_dict['claude_session.log'] = log_content
-            except:
-                pass
+            # Try to get claude session log from multiple locations
+            claude_log_paths = [
+                '/tmp/claude_session.log',
+                '/root/.claude/logs/session.log',
+                '/home/coder/.claude/logs/session.log',
+                '/home/coder/.local/share/claude-code/session.log'
+            ]
+
+            for log_path in claude_log_paths:
+                log_content = read_file_from_container(log_path)
+                if log_content:
+                    files_dict['claude_session.log'] = log_content
+                    print(f"✓ Retrieved claude logs from {log_path}")
+                    break
+
+            # Try to find any .log files in workspace
+            if 'claude_session.log' not in files_dict:
+                try:
+                    result = container.exec_run('find /workspace -name "*.log" -type f 2>/dev/null')
+                    if result.exit_code == 0:
+                        log_files = result.output.decode('utf-8', errors='ignore').strip().split('\n')
+                        for log_file in log_files:
+                            if log_file and 'claude' in log_file.lower():
+                                log_content = read_file_from_container(log_file)
+                                if log_content:
+                                    files_dict['claude_session.log'] = log_content
+                                    print(f"✓ Found and retrieved {log_file}")
+                                    break
+                except:
+                    pass
 
     except Exception as e:
         print(f"Warning: Could not collect files from container: {e}")
 
-    # If no files collected, create default
-    if not files_dict:
-        files_dict['solution.py'] = "# No file found"
+    # If no solution.py found, create default
+    if 'solution.py' not in files_dict:
+        files_dict['solution.py'] = "# No solution.py found in workspace"
+        print("⚠ solution.py not found, using default")
 
     # Create submission record
     submission_id = str(uuid.uuid4())
