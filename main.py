@@ -127,8 +127,23 @@ def init_db():
             evaluation_result TEXT,
             score REAL,
             feedback TEXT,
+            files_json TEXT,
+            evaluated_at TIMESTAMP,
             FOREIGN KEY(link_id) REFERENCES session_links(link_id),
             FOREIGN KEY(assignment_id) REFERENCES assignments(id)
+        )
+    ''')
+
+    # Create submission files table
+    cursor.execute('''
+        CREATE TABLE IF NOT EXISTS submission_files (
+            file_id TEXT PRIMARY KEY,
+            submission_id TEXT NOT NULL,
+            filename TEXT NOT NULL,
+            file_content TEXT,
+            file_size INTEGER,
+            created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+            FOREIGN KEY(submission_id) REFERENCES submissions(submission_id)
         )
     ''')
     
@@ -156,6 +171,23 @@ class LinkResponse(BaseModel):
     access_url: str
     vscode_port: int
     expires_at: str
+
+class FileSubmissionRequest(BaseModel):
+    files: dict  # {filename: file_content}
+    claude_session_log: Optional[str] = None
+
+class SubmissionFile(BaseModel):
+    filename: str
+    size: int
+
+class SubmissionWithFiles(BaseModel):
+    submission_id: str
+    assignment_id: str
+    submitted_at: str
+    files: List[SubmissionFile]
+    score: Optional[float] = None
+    feedback: Optional[str] = None
+    evaluated_at: Optional[str] = None
 
 class CodeSubmission(BaseModel):
     code: str
@@ -899,6 +931,326 @@ async def submit_code_from_container(link_id: str, background_tasks: BackgroundT
 
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"Failed to retrieve code: {str(e)}")
+
+@app.post("/api/submit-with-files/{link_id}")
+async def submit_with_files(link_id: str, background_tasks: BackgroundTasks):
+    """Collect files from container workspace and submit"""
+    conn = sqlite3.connect(DB_PATH)
+    cursor = conn.cursor()
+
+    # Get session and assignment info
+    cursor.execute('''
+        SELECT assignment_id, container_id FROM session_links WHERE link_id = ?
+    ''', (link_id,))
+
+    row = cursor.fetchone()
+    if not row:
+        conn.close()
+        raise HTTPException(status_code=404, detail="Session not found")
+
+    assignment_id, container_id = row
+
+    # Get assignment details
+    cursor.execute('''
+        SELECT title, description, evaluation_criteria FROM assignments WHERE id = ?
+    ''', (assignment_id,))
+
+    assignment_row = cursor.fetchone()
+    if not assignment_row:
+        conn.close()
+        raise HTTPException(status_code=404, detail="Assignment not found")
+
+    assignment = AssignmentResponse(
+        id=assignment_id,
+        title=assignment_row[0],
+        description=assignment_row[1],
+        evaluation_criteria=assignment_row[2]
+    )
+
+    files_dict = {}
+
+    # Try to collect files from container
+    try:
+        docker_client = get_docker_client()
+        if docker_client:
+            container = docker_client.containers.get(container_id)
+
+            # Get solution.py
+            try:
+                result = container.exec_run('cat /workspace/solution.py')
+                if result.exit_code == 0:
+                    files_dict['solution.py'] = result.output.decode('utf-8')
+            except:
+                pass
+
+            # Get instructions.md
+            try:
+                result = container.exec_run('cat /workspace/instructions.md')
+                if result.exit_code == 0:
+                    files_dict['instructions.md'] = result.output.decode('utf-8')
+            except:
+                pass
+
+            # Try to get claude session log
+            try:
+                result = container.exec_run('cat /tmp/claude_session.log 2>/dev/null || echo "No session log"')
+                if result.exit_code == 0:
+                    log_content = result.output.decode('utf-8')
+                    if log_content.strip() != "No session log":
+                        files_dict['claude_session.log'] = log_content
+            except:
+                pass
+
+    except Exception as e:
+        print(f"Warning: Could not collect files from container: {e}")
+
+    # If no files collected, create default
+    if not files_dict:
+        files_dict['solution.py'] = "# No file found"
+
+    # Create submission record
+    submission_id = str(uuid.uuid4())
+    files_json = json.dumps(list(files_dict.keys()))
+
+    cursor.execute('''
+        INSERT INTO submissions (submission_id, link_id, assignment_id, files_json)
+        VALUES (?, ?, ?, ?)
+    ''', (submission_id, link_id, assignment_id, files_json))
+
+    # Store individual files
+    for filename, content in files_dict.items():
+        file_id = str(uuid.uuid4())
+        file_size = len(content.encode('utf-8')) if isinstance(content, str) else len(content)
+
+        cursor.execute('''
+            INSERT INTO submission_files (file_id, submission_id, filename, file_content, file_size)
+            VALUES (?, ?, ?, ?, ?)
+        ''', (file_id, submission_id, filename, content, file_size))
+
+    conn.commit()
+    conn.close()
+
+    # Schedule automatic evaluation in background
+    background_tasks.add_task(evaluate_submission_files, submission_id, assignment)
+    # Schedule container cleanup
+    background_tasks.add_task(cleanup_container, container_id)
+
+    return {
+        "submission_id": submission_id,
+        "status": "submitted",
+        "message": "Files submitted successfully. Evaluation in progress..."
+    }
+
+@app.post("/api/submit-files/{link_id}")
+async def submit_files(link_id: str, request: FileSubmissionRequest, background_tasks: BackgroundTasks):
+    """Submit files from student workspace"""
+    conn = sqlite3.connect(DB_PATH)
+    cursor = conn.cursor()
+
+    # Get session and assignment info
+    cursor.execute('''
+        SELECT assignment_id, container_id FROM session_links WHERE link_id = ?
+    ''', (link_id,))
+
+    row = cursor.fetchone()
+    if not row:
+        conn.close()
+        raise HTTPException(status_code=404, detail="Session not found")
+
+    assignment_id, container_id = row
+
+    # Get assignment details
+    cursor.execute('''
+        SELECT title, description, evaluation_criteria FROM assignments WHERE id = ?
+    ''', (assignment_id,))
+
+    assignment_row = cursor.fetchone()
+    if not assignment_row:
+        conn.close()
+        raise HTTPException(status_code=404, detail="Assignment not found")
+
+    assignment = AssignmentResponse(
+        id=assignment_id,
+        title=assignment_row[0],
+        description=assignment_row[1],
+        evaluation_criteria=assignment_row[2]
+    )
+
+    # Create submission record
+    submission_id = str(uuid.uuid4())
+    files_json = json.dumps(request.files)
+
+    cursor.execute('''
+        INSERT INTO submissions (submission_id, link_id, assignment_id, files_json)
+        VALUES (?, ?, ?, ?)
+    ''', (submission_id, link_id, assignment_id, files_json))
+
+    # Store individual files
+    for filename, content in request.files.items():
+        file_id = str(uuid.uuid4())
+        file_size = len(content.encode('utf-8')) if isinstance(content, str) else len(content)
+
+        cursor.execute('''
+            INSERT INTO submission_files (file_id, submission_id, filename, file_content, file_size)
+            VALUES (?, ?, ?, ?, ?)
+        ''', (file_id, submission_id, filename, content, file_size))
+
+    # Store Claude session log if provided
+    if request.claude_session_log:
+        file_id = str(uuid.uuid4())
+        file_size = len(request.claude_session_log)
+        cursor.execute('''
+            INSERT INTO submission_files (file_id, submission_id, filename, file_content, file_size)
+            VALUES (?, ?, ?, ?, ?)
+        ''', (file_id, submission_id, 'claude_session.log', request.claude_session_log, file_size))
+
+    conn.commit()
+    conn.close()
+
+    # Schedule evaluation in background
+    background_tasks.add_task(evaluate_submission_files, submission_id, assignment)
+    # Schedule container cleanup
+    background_tasks.add_task(cleanup_container, container_id)
+
+    return {
+        "submission_id": submission_id,
+        "status": "submitted",
+        "message": "Files submitted successfully. Evaluation in progress..."
+    }
+
+def evaluate_submission_files(submission_id: str, assignment: AssignmentResponse):
+    """Evaluate submitted files"""
+    conn = sqlite3.connect(DB_PATH)
+    cursor = conn.cursor()
+
+    try:
+        # Get solution.py content
+        cursor.execute('''
+            SELECT file_content FROM submission_files
+            WHERE submission_id = ? AND filename = 'solution.py'
+        ''', (submission_id,))
+
+        solution_row = cursor.fetchone()
+        code = solution_row[0] if solution_row else "# No solution.py found"
+
+        # Get Claude session log if available
+        cursor.execute('''
+            SELECT file_content FROM submission_files
+            WHERE submission_id = ? AND filename = 'claude_session.log'
+        ''', (submission_id,))
+
+        log_row = cursor.fetchone()
+        claude_log = log_row[0] if log_row else ""
+
+        # Evaluate with Claude
+        evaluation = evaluate_code_with_claude(code, assignment)
+
+        # Update submission with evaluation results
+        cursor.execute('''
+            UPDATE submissions
+            SET score = ?, feedback = ?, evaluation_result = ?, evaluated_at = ?
+            WHERE submission_id = ?
+        ''', (
+            evaluation.score,
+            evaluation.feedback,
+            json.dumps(evaluation.evaluation_details),
+            datetime.now().isoformat(),
+            submission_id
+        ))
+
+        conn.commit()
+        print(f"Evaluation complete for submission {submission_id}")
+
+    except Exception as e:
+        print(f"Error evaluating submission {submission_id}: {e}")
+    finally:
+        conn.close()
+
+@app.get("/api/submission/{submission_id}/files")
+async def get_submission_files(submission_id: str):
+    """Get list of files in a submission"""
+    conn = sqlite3.connect(DB_PATH)
+    cursor = conn.cursor()
+
+    cursor.execute('''
+        SELECT submission_id FROM submissions WHERE submission_id = ?
+    ''', (submission_id,))
+
+    if not cursor.fetchone():
+        conn.close()
+        raise HTTPException(status_code=404, detail="Submission not found")
+
+    cursor.execute('''
+        SELECT filename, file_size FROM submission_files WHERE submission_id = ?
+        ORDER BY created_at DESC
+    ''', (submission_id,))
+
+    files = [{"filename": row[0], "size": row[1]} for row in cursor.fetchall()]
+    conn.close()
+
+    return {"submission_id": submission_id, "files": files}
+
+@app.get("/api/submission/{submission_id}/file/{filename}")
+async def download_submission_file(submission_id: str, filename: str):
+    """Download a file from a submission"""
+    conn = sqlite3.connect(DB_PATH)
+    cursor = conn.cursor()
+
+    cursor.execute('''
+        SELECT file_content FROM submission_files
+        WHERE submission_id = ? AND filename = ?
+    ''', (submission_id, filename))
+
+    row = cursor.fetchone()
+    conn.close()
+
+    if not row:
+        raise HTTPException(status_code=404, detail="File not found")
+
+    return {
+        "filename": filename,
+        "content": row[0]
+    }
+
+@app.post("/api/submission/{submission_id}/evaluate")
+async def evaluate_submission_endpoint(submission_id: str):
+    """Manually evaluate a submission"""
+    conn = sqlite3.connect(DB_PATH)
+    cursor = conn.cursor()
+
+    cursor.execute('''
+        SELECT assignment_id FROM submissions WHERE submission_id = ?
+    ''', (submission_id,))
+
+    row = cursor.fetchone()
+    if not row:
+        conn.close()
+        raise HTTPException(status_code=404, detail="Submission not found")
+
+    assignment_id = row[0]
+
+    # Get assignment details
+    cursor.execute('''
+        SELECT id, title, description, evaluation_criteria FROM assignments WHERE id = ?
+    ''', (assignment_id,))
+
+    assignment_row = cursor.fetchone()
+    conn.close()
+
+    if not assignment_row:
+        raise HTTPException(status_code=404, detail="Assignment not found")
+
+    assignment = AssignmentResponse(
+        id=assignment_row[0],
+        title=assignment_row[1],
+        description=assignment_row[2],
+        evaluation_criteria=assignment_row[3]
+    )
+
+    # Evaluate
+    evaluate_submission_files(submission_id, assignment)
+
+    return {"status": "Evaluation started"}
 
 @app.post("/api/close-container/{link_id}")
 async def close_container_endpoint(link_id: str):

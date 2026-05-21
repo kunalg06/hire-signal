@@ -384,18 +384,11 @@
                     </div>
 
                     <div style="margin-top: 20px; padding: 15px; background: #f8f9fa; border-radius: 6px;">
-                        <h4 style="color: #667eea; margin-bottom: 15px;">📥 Download Files</h4>
-                        <div style="display: grid; grid-template-columns: 1fr 1fr 1fr; gap: 10px;">
-                            <button id="downloadInstructionsBtn" type="button" class="copy-btn" style="padding: 10px;">
-                                📄 Instructions.md
-                            </button>
-                            <button id="downloadSolutionBtn" type="button" class="copy-btn" style="padding: 10px;">
-                                💻 Solution.py
-                            </button>
-                            <button id="downloadLogsBtn" type="button" class="copy-btn" style="padding: 10px;">
-                                📋 Claude Logs
-                            </button>
-                        </div>
+                        <h4 style="color: #667eea; margin-bottom: 15px;">📥 Submitted Files</h4>
+                        <div id="filesList" style="display: grid; grid-template-columns: 1fr 1fr; gap: 10px; margin-bottom: 15px;"></div>
+                        <button id="evaluateBtn" type="button" style="width: 100%; padding: 12px; background: #28a745; color: white; border: none; border-radius: 6px; cursor: pointer; font-weight: 600;">
+                            🔍 Evaluate Submission
+                        </button>
                     </div>
 
                     <div style="margin-top: 25px; padding: 20px; background: #f0f7ff; border-radius: 8px; border-left: 4px solid #667eea;">
@@ -525,10 +518,50 @@
                 document.getElementById('detailFeedback').textContent = data.feedback || 'No feedback provided.';
                 document.getElementById('detailEvaluation').textContent = data.evaluation_result || 'Evaluation pending...';
 
+                // Load files for this submission
+                try {
+                    const filesResponse = await fetch(`${API_BASE}/submission/${submissionId}/files`);
+                    if (filesResponse.ok) {
+                        const filesData = await filesResponse.json();
+                        displaySubmissionFiles(submissionId, filesData.files);
+                    }
+                } catch (e) {
+                    console.log('Could not load files:', e);
+                }
+
                 document.getElementById('submissionsList').style.display = 'none';
                 document.getElementById('submissionDetails').style.display = 'block';
             } catch (error) {
                 alert('Error: ' + error.message);
+            }
+        }
+
+        function displaySubmissionFiles(submissionId, files) {
+            const filesList = document.getElementById('filesList');
+            let html = '';
+
+            files.forEach(file => {
+                const sizeKB = (file.size / 1024).toFixed(2);
+                html += `
+                    <button type="button"
+                            onclick="downloadSubmissionFile('${submissionId}', '${file.filename}')"
+                            style="padding: 10px; background: #667eea; color: white; border: none; border-radius: 6px; cursor: pointer; font-weight: 500;">
+                        📄 ${file.filename} (${sizeKB}KB)
+                    </button>
+                `;
+            });
+
+            filesList.innerHTML = html;
+        }
+
+        async function downloadSubmissionFile(submissionId, filename) {
+            try {
+                const response = await fetch(`${API_BASE}/submission/${submissionId}/file/${filename}`);
+                if (!response.ok) throw new Error(`HTTP ${response.status}`);
+                const data = await response.json();
+                downloadFile(data.content, filename);
+            } catch (error) {
+                alert('Error downloading file: ' + error.message);
             }
         }
 
@@ -538,20 +571,39 @@
             currentSubmission = null;
         });
 
-        // Download file handlers
-        document.getElementById('downloadInstructionsBtn').addEventListener('click', () => {
-            if (!currentSubmission) return;
-            downloadFile(currentSubmission.instructions_md, 'instructions.md');
-        });
+        // Evaluate submission button
+        document.getElementById('evaluateBtn').addEventListener('click', async () => {
+            if (!currentSubmission) {
+                alert('No submission selected');
+                return;
+            }
 
-        document.getElementById('downloadSolutionBtn').addEventListener('click', () => {
-            if (!currentSubmission) return;
-            downloadFile(currentSubmission.code, 'solution.py');
-        });
+            const btn = document.getElementById('evaluateBtn');
+            const originalText = btn.innerHTML;
+            btn.disabled = true;
+            btn.innerHTML = '⏳ Evaluating...';
 
-        document.getElementById('downloadLogsBtn').addEventListener('click', () => {
-            if (!currentSubmission) return;
-            downloadFile(currentSubmission.claude_logs || 'No Claude session logs available', 'claude-session.log');
+            try {
+                const response = await fetch(`${API_BASE}/submission/${currentSubmission.submission_id}/evaluate`, {
+                    method: 'POST'
+                });
+
+                if (!response.ok) throw new Error(`HTTP ${response.status}`);
+
+                alert('Evaluation started. Checking results...');
+
+                // Wait a moment then reload
+                setTimeout(async () => {
+                    await viewSubmission(currentSubmission.submission_id);
+                    btn.disabled = false;
+                    btn.innerHTML = originalText;
+                }, 2000);
+
+            } catch (error) {
+                alert('Error evaluating submission: ' + error.message);
+                btn.disabled = false;
+                btn.innerHTML = originalText;
+            }
         });
 
         function downloadFile(content, filename) {
