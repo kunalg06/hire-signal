@@ -1336,32 +1336,30 @@ async def get_submission(submission_id: str):
     ''', (submission_id,))
 
     row = cursor.fetchone()
-    conn.close()
 
     if not row:
+        conn.close()
         raise HTTPException(status_code=404, detail="Submission not found")
 
-    # Try to get instructions from the container
-    instructions_md = ""
-    try:
-        cursor = sqlite3.connect(DB_PATH).cursor()
-        cursor.execute('SELECT container_id FROM session_links WHERE link_id = ?', (row[1],))
-        container_row = cursor.fetchone()
+    # Get files from submission_files table
+    cursor.execute('''
+        SELECT filename, file_content FROM submission_files
+        WHERE submission_id = ?
+        ORDER BY created_at DESC
+    ''', (submission_id,))
 
-        if container_row:
-            docker_client = get_docker_client()
-            if docker_client:
-                container = docker_client.containers.get(container_row[0])
-                bits, stat = container.get_archive('/workspace/instructions.md')
-                import tarfile
-                import io
-                tar_stream = io.BytesIO(b''.join(bits))
-                tar = tarfile.open(fileobj=tar_stream)
-                member = tar.getmembers()[0]
-                f = tar.extractfile(member)
-                instructions_md = f.read().decode('utf-8')
-    except Exception as e:
-        print(f"Could not retrieve instructions from container: {e}")
+    files = cursor.fetchall()
+    conn.close()
+
+    # Extract specific files from submission
+    instructions_md = ""
+    claude_logs = ""
+
+    for filename, content in files:
+        if filename == 'instructions.md':
+            instructions_md = content
+        elif filename == 'claude_session.log':
+            claude_logs = content
 
     return {
         "submission_id": row[0],
@@ -1374,7 +1372,7 @@ async def get_submission(submission_id: str):
         "feedback": row[7],
         "assignment_title": row[8],
         "instructions_md": instructions_md,
-        "claude_logs": "Claude session logs would be captured here if Claude API was used for code generation"
+        "claude_logs": claude_logs if claude_logs else "No Claude session logs available"
     }
 
 @app.get("/api/solution/{link_id}")
