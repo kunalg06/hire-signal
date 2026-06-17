@@ -16,10 +16,6 @@ RUN npm install -g @anthropic-ai/claude-code
 # Install Python dependencies
 RUN pip3 install --break-system-packages anthropic requests
 
-# Copy startup script
-COPY start-services.py /app/start-services.py
-RUN chmod +x /app/start-services.py
-
 # Set workspace and log directory permissions
 RUN mkdir -p /workspace /app/logs && chmod 777 /workspace /app/logs
 
@@ -31,9 +27,13 @@ RUN mkdir -p ~/.config/code-server && \
     echo "auth: none" >> ~/.config/code-server/config.yaml && \
     echo "cert: false" >> ~/.config/code-server/config.yaml
 
+# Configure Claude CLI to only use haiku-4.5 model
+RUN mkdir -p ~/.claude && \
+    echo "model: claude-haiku-4-5-20251001" > ~/.claude/config.yaml && \
+    echo "# Only haiku-4.5 model allowed in student environment" >> ~/.claude/config.yaml
+
+# Set environment variable to restrict model selection
+ENV CLAUDE_MODEL=claude-haiku-4-5-20251001
+
 EXPOSE 8080
 WORKDIR /workspace
-
-# Override ENTRYPOINT and use CMD to start our custom startup script
-ENTRYPOINT []
-CMD ["python3", "/app/start-services.py"]

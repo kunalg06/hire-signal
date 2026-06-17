@@ -41,7 +41,7 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 - code-server (browser-based VS Code)
 - Python 3 + development tools
 - Anthropic SDK pre-installed
-- Auto-assigned port (6000-7000 range)
+- Auto-assigned port (6080-7000 range)
 
 ### Database Schema
 

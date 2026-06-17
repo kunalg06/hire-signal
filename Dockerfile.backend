@@ -17,7 +17,6 @@ RUN pip install --no-cache-dir -r requirements.txt
 # Copy application code
 COPY main.py .
 COPY frontend.html .
-COPY codeserver-submit.html .
 
 # Create data directory
 RUN mkdir -p /app/data /tmp/assignments

@@ -805,11 +805,17 @@ Format your response as JSON with keys: correctness, code_quality, completeness,
                 "overall_feedback": response_text,
                 "score": 0
             }
-        
+
+        feedback_value = eval_data.get('overall_feedback', '')
+        if isinstance(feedback_value, dict):
+            feedback_value = json.dumps(feedback_value)
+        elif not isinstance(feedback_value, str):
+            feedback_value = str(feedback_value)
+
         return EvaluationResult(
             submission_id=submission_id,
             score=eval_data.get('score', 0),
-            feedback=eval_data.get('overall_feedback', ''),
+            feedback=feedback_value,
             evaluation_details=eval_data
         )
     

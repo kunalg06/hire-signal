@@ -1,0 +1,13 @@
+name: build
+
+on:
+  push:
+    branches: [main, develop]
+
+jobs:
+  docker-build:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - run: docker build -f docker/Dockerfile.backend -t ai-coding-assessment-backend .
+      - run: docker build -f docker/Dockerfile.codeserver -t ai-coding-assessment-codeserver .

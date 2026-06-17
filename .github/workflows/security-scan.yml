@@ -1,0 +1,22 @@
+name: security-scan
+
+on:
+  pull_request:
+  push:
+    branches: [main, develop]
+
+jobs:
+  security:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+      - run: pip install -r requirements.txt pip-audit bandit
+      - run: pip-audit
+      - run: bandit -r backend
+      - uses: aquasecurity/trivy-action@0.24.0
+        with:
+          scan-type: fs
+          scan-ref: .
