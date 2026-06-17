@@ -406,6 +406,7 @@ def parse_claude_session_log(log_content: str) -> list:
         return entries
 
     lines = log_content.split('\n')
+    json_parsed = False
 
     # Try JSON lines format first
     for line in lines:
@@ -415,22 +416,46 @@ def parse_claude_session_log(log_content: str) -> list:
             entry = json.loads(line)
             if isinstance(entry, dict):
                 entries.append(entry)
+                json_parsed = True
                 continue
         except json.JSONDecodeError:
             pass
 
-        # Parse plaintext format: look for claude interaction patterns
-        # Pattern: "Prompt: ... " or "Command: ..." followed by response
-        if 'prompt:' in line.lower() or 'command:' in line.lower() or 'claude' in line.lower():
+    # If no JSON entries found, parse plaintext transcript format
+    if not entries:
+        full_text = '\n'.join(lines)
+
+        # Look for patterns like "Prompt: ... Response: ..." or "User: ... Assistant: ..."
+        import re
+
+        # Pattern 1: "Prompt: ... Response: ..."
+        prompt_response_pattern = r'(?:Prompt|Command|User):\s*(.+?)(?:\n\s*(?:Response|Assistant|Result):\s*(.+?)(?=\n(?:Prompt|Command|User|$)|$))'
+        matches = re.findall(prompt_response_pattern, full_text, re.IGNORECASE | re.DOTALL)
+
+        for prompt_text, response_text in matches:
             entry = {
                 'timestamp': datetime.now(timezone.utc).isoformat(),
                 'interaction_type': 'claude_cli',
-                'prompt': line.strip()[:200],
-                'response_summary': 'Captured from terminal',
+                'prompt': prompt_text.strip()[:500],
+                'response_summary': response_text.strip()[:500],
                 'file_changes_count': 0,
-                'raw_json': json.dumps({'raw_line': line})
+                'raw_json': json.dumps({'prompt': prompt_text.strip(), 'response': response_text.strip()})
             }
             entries.append(entry)
+
+        # Pattern 2: If no structured format found, treat each line mentioning claude/prompt as an entry
+        if not entries:
+            for line in lines:
+                if line.strip() and any(keyword in line.lower() for keyword in ['prompt:', 'command:', 'claude', 'evaluate']):
+                    entry = {
+                        'timestamp': datetime.now(timezone.utc).isoformat(),
+                        'interaction_type': 'claude_cli',
+                        'prompt': line.strip()[:500],
+                        'response_summary': 'Captured from terminal',
+                        'file_changes_count': 0,
+                        'raw_json': json.dumps({'raw_line': line})
+                    }
+                    entries.append(entry)
 
     return entries
 
@@ -486,6 +511,10 @@ def score_from_session_logs(session_logs: list, container_creation_time: str = N
         except Exception as e:
             print(f"Error calculating efficiency score: {e}")
             efficiency_score = 15
+
+    # Clamp to ensure score stays in 0-30 range
+    efficiency_score = max(0, min(30, efficiency_score))
+    approach_score = max(0, min(30, approach_score))
 
     return (approach_score, efficiency_score)
 
@@ -1891,7 +1920,7 @@ async def student_dashboard(link_id: str):
 
                 <div class="controls">
                     <div class="editor-section">
-                        <iframe src="http://localhost:{port}/?folder=/workspace" allow="clipboard-read; clipboard-write"></iframe>
+                        <iframe src="http://localhost:{port}/?folder=/workspace" allow="clipboard-read; clipboard-write" sandbox="allow-same-origin allow-scripts allow-forms allow-popups allow-presentation"></iframe>
                     </div>
 
                     <div class="section">

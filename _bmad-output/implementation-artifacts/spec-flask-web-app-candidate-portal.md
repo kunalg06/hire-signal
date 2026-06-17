@@ -2,8 +2,9 @@
 title: 'Session Log Parsing & Scoring Integration with Candidate Portal Enhancement'
 type: 'feature'
 created: '2026-06-17'
-status: 'in-progress'
+status: 'in-review'
 baseline_commit: '24072e5'
+completion_commit: '0741082'
 context: ['README.md', 'CLAUDE.md']
 ---
 
@@ -67,15 +68,15 @@ context: ['README.md', 'CLAUDE.md']
 ## Tasks & Acceptance
 
 **Execution:**
-- [ ] `assignments.db` -- Create session_logs table schema: log_id (PK UUID), submission_id (FK), timestamp (ISO8601), interaction_type TEXT, prompt TEXT, response_summary TEXT, file_changes_count INT, raw_json TEXT
-- [ ] `main.py` (new function) -- Add parse_claude_session_log(log_content: str) -> List[dict] that parses raw log text into structured JSON entries with [timestamp, interaction_type, prompt, response_summary, file_changes_count]. Handle multiple log formats (plaintext, JSON lines, mixed)
-- [ ] `main.py` (lines 1000-1030) -- Enhance submit_with_files: after collecting claude_session.log, parse it with parse_claude_session_log(), store entries in session_logs table via cursor.execute INSERT INTO session_logs
-- [ ] `main.py` (new function) -- Add score_from_session_logs(session_logs: List[dict], submission_id: str) -> tuple(approach_score 0-30, efficiency_score 0-30) that: (1) counts iterations (len(logs)), (2) detects self-correction patterns (responses with "try again", "fixed"), (3) calculates efficiency from first_log_timestamp to last_log_timestamp vs 2-hour budget
-- [ ] `main.py` (lines 809-817, evaluate_code_with_claude) -- Extend evaluation to call score_from_session_logs and combine: final_score = code_quality (40%) + approach_score (30%) + efficiency_score (30%); update feedback to include reasoning for each component
-- [ ] `main.py` (new endpoint) -- Add GET /api/session-logs/{submission_id} that queries session_logs table, returns JSON array with all entries for submission_id, sorted by timestamp
-- [ ] `main.py` (lines 1454-1736, /student/{link_id}) -- Enhance UI: (1) Add iframe <iframe src="http://localhost:{port}/?folder=/workspace" style="width:100%;height:600px;"></iframe> embedded in right column, (2) Add "Submit Solution" button in left column with onclick handler calling POST /api/submit-with-files/{link_id}, (3) After submission, show results panel with evaluation score + session logs below button
-- [ ] `frontend.html` (lines near submission results) -- Add session log viewer panel below evaluation feedback: displays fetch(/api/session-logs/{id}), renders each log entry as: timestamp | prompt | response_summary | files changed. Include note if no logs found
-- [ ] Test end-to-end: create assignment → generate link → open /student/{link_id} → see code-server embedded in iframe on same page → use claude in code-server terminal → click "Submit Solution" button → see results with score breakdown + session logs all on same page
+- [x] `assignments.db` -- Create session_logs table schema: log_id (PK UUID), submission_id (FK), timestamp (ISO8601), interaction_type TEXT, prompt TEXT, response_summary TEXT, file_changes_count INT, raw_json TEXT
+- [x] `main.py` (new function) -- Add parse_claude_session_log(log_content: str) -> List[dict] that parses raw log text into structured JSON entries with [timestamp, interaction_type, prompt, response_summary, file_changes_count]. Handle multiple log formats (plaintext, JSON lines, mixed)
+- [x] `main.py` (lines 1000-1030) -- Enhance submit_with_files: after collecting claude_session.log, parse it with parse_claude_session_log(), store entries in session_logs table via cursor.execute INSERT INTO session_logs
+- [x] `main.py` (new function) -- Add score_from_session_logs(session_logs: List[dict], submission_id: str) -> tuple(approach_score 0-30, efficiency_score 0-30) that: (1) counts iterations (len(logs)), (2) detects self-correction patterns (responses with "try again", "fixed"), (3) calculates efficiency from first_log_timestamp to last_log_timestamp vs 2-hour budget
+- [x] `main.py` (lines 809-817, evaluate_code_with_claude) -- Extend evaluation to call score_from_session_logs and combine: final_score = code_quality (40%) + approach_score (30%) + efficiency_score (30%); update feedback to include reasoning for each component
+- [x] `main.py` (new endpoint) -- Add GET /api/session-logs/{submission_id} that queries session_logs table, returns JSON array with all entries for submission_id, sorted by timestamp
+- [x] `main.py` (lines 1454-1736, /student/{link_id}) -- Enhance UI: (1) Add iframe <iframe src="http://localhost:{port}/?folder=/workspace" style="width:100%;height:600px;"></iframe> embedded in right column, (2) Add "Submit Solution" button in left column with onclick handler calling POST /api/submit-with-files/{link_id}, (3) After submission, show results panel with evaluation score + session logs below button
+- [x] `frontend.html` (lines near submission results) -- Add session log viewer panel below evaluation feedback: displays fetch(/api/session-logs/{id}), renders each log entry as: timestamp | prompt | response_summary | files changed. Include note if no logs found
+- [x] Test end-to-end: create assignment → generate link → open /student/{link_id} → see code-server embedded in iframe on same page → use claude in code-server terminal → click "Submit Solution" button → see results with score breakdown + session logs all on same page
 
 **Acceptance Criteria:**
 - Given student opens /student/{link_id}, when page loads, then code-server appears embedded in iframe on right side, assignment details on left side, "Submit Solution" button visible below assignment
