@@ -6,7 +6,7 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ## 🎯 Project Overview
 
-**Claude Assignment Platform** is a production-ready educational system where teachers create coding assignments and Claude AI automatically evaluates student submissions. Students access browser-based VS Code environments (code-server) running in isolated Docker containers.
+**AI Engineering Assessment & Evaluation Platform** is a production-ready educational system where teachers create coding assignments and Claude AI automatically evaluates student submissions. Students access browser-based VS Code environments (code-server) running in isolated Docker containers.
 
 ### Core Flow
 1. Teachers create assignments via REST API or HTML dashboard
@@ -28,8 +28,8 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 - Makes REST API calls to backend
 - Teacher-facing: create assignments, generate links, view results
 
-**Backend Layer** (`main.py`)
-- FastAPI application (Python 3.11)
+**Backend Layer** (`app.py`)
+- Flask application (Python 3.11)
 - REST API endpoints for all operations
 - Database management (SQLite auto-initialized)
 - Docker container orchestration
