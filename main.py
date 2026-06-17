@@ -1252,11 +1252,12 @@ async def submit_with_files(link_id: str, background_tasks: BackgroundTasks):
                     json.dumps(log_entry)
                 ))
 
-            conn.commit()
             print(f"  ✓ Stored {len(session_logs)} session log entries")
         except Exception as e:
             print(f"Warning: Failed to parse/store session logs: {e}")
 
+    # Commit all changes (submissions, files, and logs)
+    conn.commit()
     conn.close()
 
     # Schedule automatic evaluation in background with session logs
