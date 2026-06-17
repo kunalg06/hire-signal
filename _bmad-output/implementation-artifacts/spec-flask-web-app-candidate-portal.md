@@ -2,9 +2,9 @@
 title: 'Session Log Parsing & Scoring Integration with Candidate Portal Enhancement'
 type: 'feature'
 created: '2026-06-17'
-status: 'in-review'
+status: 'complete'
 baseline_commit: '24072e5'
-completion_commit: '0741082'
+completion_commit: '8a208a7'
 context: ['README.md', 'CLAUDE.md']
 ---
 
