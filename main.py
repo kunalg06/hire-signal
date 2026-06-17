@@ -146,7 +146,23 @@ def init_db():
             FOREIGN KEY(submission_id) REFERENCES submissions(submission_id)
         )
     ''')
-    
+
+    # Create session logs table for tracking Claude interactions
+    cursor.execute('''
+        CREATE TABLE IF NOT EXISTS session_logs (
+            log_id TEXT PRIMARY KEY,
+            submission_id TEXT NOT NULL,
+            timestamp TEXT NOT NULL,
+            interaction_type TEXT,
+            prompt TEXT,
+            response_summary TEXT,
+            file_changes_count INTEGER DEFAULT 0,
+            raw_json TEXT,
+            created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+            FOREIGN KEY(submission_id) REFERENCES submissions(submission_id)
+        )
+    ''')
+
     conn.commit()
     conn.close()
 
@@ -381,6 +397,97 @@ def parse_json_response(response_text: str) -> dict:
         print(f"DEBUG: Regex parsing failed: {e}")
 
     raise ValueError(f"Could not parse JSON from response. First 300 chars: {text[:300]}")
+
+def parse_claude_session_log(log_content: str) -> list:
+    """Parse Claude session log into structured entries"""
+    entries = []
+
+    if not log_content or not log_content.strip():
+        return entries
+
+    lines = log_content.split('\n')
+
+    # Try JSON lines format first
+    for line in lines:
+        if not line.strip():
+            continue
+        try:
+            entry = json.loads(line)
+            if isinstance(entry, dict):
+                entries.append(entry)
+                continue
+        except json.JSONDecodeError:
+            pass
+
+        # Parse plaintext format: look for claude interaction patterns
+        # Pattern: "Prompt: ... " or "Command: ..." followed by response
+        if 'prompt:' in line.lower() or 'command:' in line.lower() or 'claude' in line.lower():
+            entry = {
+                'timestamp': datetime.now(timezone.utc).isoformat(),
+                'interaction_type': 'claude_cli',
+                'prompt': line.strip()[:200],
+                'response_summary': 'Captured from terminal',
+                'file_changes_count': 0,
+                'raw_json': json.dumps({'raw_line': line})
+            }
+            entries.append(entry)
+
+    return entries
+
+def score_from_session_logs(session_logs: list, container_creation_time: str = None) -> tuple:
+    """Calculate approach and efficiency scores from session logs
+    Returns: (approach_score 0-30, efficiency_score 0-30)
+    """
+    approach_score = 0
+    efficiency_score = 15  # Default neutral
+
+    if not session_logs:
+        return (0, 0)
+
+    # Approach score: based on iterations and self-correction patterns
+    iteration_count = len(session_logs)
+
+    # Base score: 3 points per iteration
+    approach_score = min(15, iteration_count * 3)
+
+    # Self-correction bonus: +5 points for each response indicating correction/retry
+    self_correction_count = 0
+    for log in session_logs:
+        response = log.get('response_summary', '').lower()
+        if any(keyword in response for keyword in ['error', 'fix', 'try again', 'corrected', 'fixed', 'failed']):
+            self_correction_count += 1
+
+    approach_score = min(30, approach_score + (self_correction_count * 5))
+
+    # Efficiency score: based on time elapsed
+    if session_logs and container_creation_time:
+        try:
+            # Get first and last log timestamps
+            first_log = session_logs[0]
+            last_log = session_logs[-1]
+
+            first_timestamp = datetime.fromisoformat(first_log.get('timestamp', '').replace('Z', '+00:00'))
+            last_timestamp = datetime.fromisoformat(last_log.get('timestamp', '').replace('Z', '+00:00'))
+            container_time = datetime.fromisoformat(container_creation_time.replace('Z', '+00:00'))
+
+            elapsed_hours = (last_timestamp - container_time).total_seconds() / 3600
+
+            # Budget: 2 hours; faster = higher score
+            if elapsed_hours <= 0.5:
+                efficiency_score = 30
+            elif elapsed_hours <= 1:
+                efficiency_score = 25
+            elif elapsed_hours <= 2:
+                efficiency_score = 20
+            elif elapsed_hours <= 4:
+                efficiency_score = 10
+            else:
+                efficiency_score = 5
+        except Exception as e:
+            print(f"Error calculating efficiency score: {e}")
+            efficiency_score = 15
+
+    return (approach_score, efficiency_score)
 
 @app.post("/api/generate-challenge", response_model=ChallengeResponse)
 async def generate_challenge(challenge_request: ChallengeRequest, request_obj: Request):
@@ -746,12 +853,13 @@ async def get_session_info(link_id: str):
 # Submission & Evaluation
 # ============================================================================
 
-def evaluate_code_with_claude(code: str, assignment: AssignmentResponse) -> EvaluationResult:
+def evaluate_code_with_claude(code: str, assignment: AssignmentResponse, session_logs: list = None, container_created_at: str = None) -> EvaluationResult:
     """
-    Evaluate submitted code using Claude API
+    Evaluate submitted code using Claude API with integrated session log scoring
+    Returns: EvaluationResult with combined score (code quality 40% + approach 30% + efficiency 30%)
     """
     submission_id = str(uuid.uuid4())
-    
+
     evaluation_prompt = f"""
 You are an expert code reviewer and educator. Evaluate the following student submission.
 
@@ -771,16 +879,16 @@ Provide a structured evaluation including:
 1. Correctness (does it solve the problem?)
 2. Code quality (readability, efficiency, best practices)
 3. Completeness (does it cover all requirements?)
-4. Score: Rate from 0-100
+4. Score: Rate from 0-100 (this is for code quality only)
 
 Format your response as JSON with keys: correctness, code_quality, completeness, overall_feedback, score
 """
-    
+
     try:
         client = get_anthropic_client()
         if client is None:
             raise HTTPException(status_code=503, detail="Anthropic API client is not available")
-        
+
         message = client.messages.create(
             model="claude-haiku-4-5",
             max_tokens=1024,
@@ -788,13 +896,13 @@ Format your response as JSON with keys: correctness, code_quality, completeness,
                 {"role": "user", "content": evaluation_prompt}
             ]
         )
-        
+
         response_text = message.content[0].text
-        
+
         # Parse JSON from response
         import re
         json_match = re.search(r'\{.*\}', response_text, re.DOTALL)
-        
+
         if json_match:
             eval_data = json.loads(json_match.group())
         else:
@@ -806,19 +914,45 @@ Format your response as JSON with keys: correctness, code_quality, completeness,
                 "score": 0
             }
 
+        # Extract code quality score (40% weight)
+        code_quality_score = float(eval_data.get('score', 0))
+
+        # Calculate approach and efficiency scores from session logs (30% + 30% weights)
+        approach_score, efficiency_score = score_from_session_logs(session_logs or [], container_created_at)
+
+        # Combine scores: code_quality (40%) + approach (30%) + efficiency (30%)
+        combined_score = (code_quality_score * 0.4) + (approach_score * 0.3) + (efficiency_score * 0.3)
+
         feedback_value = eval_data.get('overall_feedback', '')
         if isinstance(feedback_value, dict):
             feedback_value = json.dumps(feedback_value)
         elif not isinstance(feedback_value, str):
             feedback_value = str(feedback_value)
 
+        # Append scoring breakdown to feedback
+        scoring_breakdown = f"\n\n---SCORING BREAKDOWN---\nCode Quality (40%): {code_quality_score}/100 = {code_quality_score * 0.4:.1f}\nProblem-Solving Approach (30%): {approach_score}/30 = {approach_score * 0.3:.1f}"
+
+        if session_logs:
+            scoring_breakdown += f"\nEfficiency (30%): {efficiency_score}/30 = {efficiency_score * 0.3:.1f}"
+        else:
+            scoring_breakdown += f"\nEfficiency (30%): 0/30 = 0 (No Claude interactions recorded)"
+
+        scoring_breakdown += f"\nTotal Score: {combined_score:.1f}/100"
+
         return EvaluationResult(
             submission_id=submission_id,
-            score=eval_data.get('score', 0),
-            feedback=feedback_value,
-            evaluation_details=eval_data
+            score=combined_score,
+            feedback=feedback_value + scoring_breakdown,
+            evaluation_details={
+                **eval_data,
+                "code_quality_score": code_quality_score,
+                "approach_score": approach_score,
+                "efficiency_score": efficiency_score,
+                "combined_score": combined_score,
+                "session_log_count": len(session_logs) if session_logs else 0
+            }
         )
-    
+
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"Evaluation failed: {str(e)}")
 
@@ -1055,18 +1189,57 @@ async def submit_with_files(link_id: str, background_tasks: BackgroundTasks):
             VALUES (?, ?, ?, ?, ?)
         ''', (file_id, submission_id, filename, content, file_size))
 
-    conn.commit()
+    # Parse and store Claude session logs if available
+    session_logs = []
+    container_created_at = None
+
+    if 'claude_session.log' in files_dict:
+        try:
+            session_logs = parse_claude_session_log(files_dict['claude_session.log'])
+
+            # Get container creation time
+            conn2 = sqlite3.connect(DB_PATH)
+            cursor2 = conn2.cursor()
+            cursor2.execute('SELECT created_at FROM session_links WHERE link_id = ?', (link_id,))
+            time_row = cursor2.fetchone()
+            if time_row:
+                container_created_at = time_row[0]
+            conn2.close()
+
+            # Store parsed logs in session_logs table
+            for log_entry in session_logs:
+                log_id = str(uuid.uuid4())
+                cursor.execute('''
+                    INSERT INTO session_logs (log_id, submission_id, timestamp, interaction_type, prompt, response_summary, file_changes_count, raw_json)
+                    VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+                ''', (
+                    log_id,
+                    submission_id,
+                    log_entry.get('timestamp', datetime.now(timezone.utc).isoformat()),
+                    log_entry.get('interaction_type', 'claude_cli'),
+                    log_entry.get('prompt', ''),
+                    log_entry.get('response_summary', ''),
+                    log_entry.get('file_changes_count', 0),
+                    json.dumps(log_entry)
+                ))
+
+            conn.commit()
+            print(f"  ✓ Stored {len(session_logs)} session log entries")
+        except Exception as e:
+            print(f"Warning: Failed to parse/store session logs: {e}")
+
     conn.close()
 
-    # Schedule automatic evaluation in background
-    background_tasks.add_task(evaluate_submission_files, submission_id, assignment)
+    # Schedule automatic evaluation in background with session logs
+    background_tasks.add_task(evaluate_submission_files, submission_id, assignment, session_logs, container_created_at)
     # Schedule container cleanup
     background_tasks.add_task(cleanup_container, container_id)
 
     return {
         "submission_id": submission_id,
         "status": "submitted",
-        "message": "Files submitted successfully. Evaluation in progress..."
+        "message": "Files submitted successfully. Evaluation in progress...",
+        "session_logs_count": len(session_logs)
     }
 
 @app.post("/api/submit-files/{link_id}")
@@ -1146,8 +1319,8 @@ async def submit_files(link_id: str, request: FileSubmissionRequest, background_
         "message": "Files submitted successfully. Evaluation in progress..."
     }
 
-def evaluate_submission_files(submission_id: str, assignment: AssignmentResponse):
-    """Evaluate submitted files"""
+def evaluate_submission_files(submission_id: str, assignment: AssignmentResponse, session_logs: list = None, container_created_at: str = None):
+    """Evaluate submitted files with session log scoring"""
     conn = sqlite3.connect(DB_PATH)
     cursor = conn.cursor()
 
@@ -1161,17 +1334,40 @@ def evaluate_submission_files(submission_id: str, assignment: AssignmentResponse
         solution_row = cursor.fetchone()
         code = solution_row[0] if solution_row else "# No solution.py found"
 
-        # Get Claude session log if available
-        cursor.execute('''
-            SELECT file_content FROM submission_files
-            WHERE submission_id = ? AND filename = 'claude_session.log'
-        ''', (submission_id,))
+        # If session_logs not provided, try to retrieve from session_logs table
+        if session_logs is None:
+            cursor.execute('''
+                SELECT timestamp, interaction_type, prompt, response_summary, file_changes_count
+                FROM session_logs
+                WHERE submission_id = ?
+                ORDER BY timestamp ASC
+            ''', (submission_id,))
 
-        log_row = cursor.fetchone()
-        claude_log = log_row[0] if log_row else ""
+            rows = cursor.fetchall()
+            session_logs = [
+                {
+                    'timestamp': row[0],
+                    'interaction_type': row[1],
+                    'prompt': row[2],
+                    'response_summary': row[3],
+                    'file_changes_count': row[4]
+                }
+                for row in rows
+            ] if rows else []
 
-        # Evaluate with Claude
-        evaluation = evaluate_code_with_claude(code, assignment)
+        # If container_created_at not provided, try to get from session_links
+        if container_created_at is None:
+            cursor.execute('''
+                SELECT sl.created_at FROM submissions s
+                JOIN session_links sl ON s.link_id = sl.link_id
+                WHERE s.submission_id = ?
+            ''', (submission_id,))
+
+            time_row = cursor.fetchone()
+            container_created_at = time_row[0] if time_row else None
+
+        # Evaluate with Claude and session logs
+        evaluation = evaluate_code_with_claude(code, assignment, session_logs, container_created_at)
 
         # Update submission with evaluation results
         cursor.execute('''
@@ -1187,7 +1383,7 @@ def evaluate_submission_files(submission_id: str, assignment: AssignmentResponse
         ))
 
         conn.commit()
-        print(f"Evaluation complete for submission {submission_id}")
+        print(f"Evaluation complete for submission {submission_id}: score={evaluation.score:.1f}")
 
     except Exception as e:
         print(f"Error evaluating submission {submission_id}: {e}")
@@ -1381,6 +1577,39 @@ async def get_submission(submission_id: str):
         "claude_logs": claude_logs if claude_logs else "No Claude session logs available"
     }
 
+@app.get("/api/session-logs/{submission_id}")
+async def get_session_logs(submission_id: str):
+    """Retrieve parsed session logs for a submission"""
+    conn = sqlite3.connect(DB_PATH)
+    cursor = conn.cursor()
+
+    cursor.execute('''
+        SELECT log_id, timestamp, interaction_type, prompt, response_summary, file_changes_count
+        FROM session_logs
+        WHERE submission_id = ?
+        ORDER BY timestamp ASC
+    ''', (submission_id,))
+
+    rows = cursor.fetchall()
+    conn.close()
+
+    logs = []
+    for row in rows:
+        logs.append({
+            "log_id": row[0],
+            "timestamp": row[1],
+            "interaction_type": row[2],
+            "prompt": row[3],
+            "response_summary": row[4],
+            "file_changes_count": row[5]
+        })
+
+    return {
+        "submission_id": submission_id,
+        "logs": logs,
+        "total_interactions": len(logs)
+    }
+
 @app.get("/api/solution/{link_id}")
 async def get_solution_file(link_id: str):
     """Retrieve solution.py from the student container"""
@@ -1532,12 +1761,26 @@ async def student_dashboard(link_id: str):
             }}
             .instructions {{
                 grid-column: 1;
+                max-height: 800px;
+                overflow-y: auto;
             }}
             .controls {{
                 grid-column: 2;
                 display: flex;
                 flex-direction: column;
                 gap: 15px;
+            }}
+            .editor-section {{
+                background: white;
+                border: 1px solid #ddd;
+                border-radius: 8px;
+                overflow: hidden;
+                min-height: 600px;
+            }}
+            .editor-section iframe {{
+                width: 100%;
+                height: 600px;
+                border: none;
             }}
             .btn {{
                 padding: 12px 24px;
@@ -1647,32 +1890,26 @@ async def student_dashboard(link_id: str):
                 </div>
 
                 <div class="controls">
-                    <div class="section">
-                        <h2>🚀 Start Coding</h2>
-                        <p>Click below to open VS Code and start working on your solution.</p>
-                        <a href="{vscode_url}" target="_blank" class="btn btn-secondary" style="margin-top: 15px;">
-                            Open VS Code Editor
-                        </a>
-                        <div class="code-info">
-                            <strong>Files available:</strong>
-                            <ul style="margin: 10px 0 0 20px;">
-                                <li><code>instructions.md</code> - Full assignment details</li>
-                                <li><code>solution.py</code> - Starter code template</li>
-                            </ul>
-                        </div>
-                        <div class="code-info" style="margin-top: 15px; background: #fff3cd; border-left-color: #ffc107;">
-                            <strong style="color: #856404;">💡 To Submit from VS Code:</strong>
-                            <p style="margin: 8px 0 0 0; color: #856404; font-size: 14px;">
-                                Once VS Code opens, open a new tab and go to:<br>
-                                <code style="background: white; padding: 4px 8px;">localhost:9999</code><br>
-                                You'll see the submit button there!
-                            </p>
-                        </div>
+                    <div class="editor-section">
+                        <iframe src="http://localhost:{port}/?folder=/workspace" allow="clipboard-read; clipboard-write"></iframe>
                     </div>
 
                     <div class="section">
                         <h2>📤 Submit Solution</h2>
-                        <p>When finished, click the <strong>Submit</strong> button in VS Code (top-right corner) to submit your solution for evaluation.</p>
+                        <p>Click below to submit your code for evaluation.</p>
+                        <button id="submitBtn" class="btn btn-primary" style="width: 100%; margin-top: 15px;">
+                            📤 Submit Solution
+                        </button>
+                        <div id="status" class="status"></div>
+                        <div id="results" style="margin-top: 20px; display: none; background: white; padding: 20px; border-radius: 8px; max-height: 400px; overflow-y: auto;">
+                            <h3 style="color: #667eea; margin-bottom: 15px;">✅ Evaluation Results</h3>
+                            <div id="scoreDisplay" style="font-size: 18px; font-weight: bold; margin: 15px 0; color: #667eea;">Score: <span id="scoreValue">--</span>/100</div>
+                            <div id="feedbackDisplay" style="color: #555; line-height: 1.6; white-space: pre-wrap; word-break: break-word;"></div>
+                            <div id="sessionLogsPanel" style="margin-top: 20px; padding-top: 20px; border-top: 1px solid #ddd;">
+                                <h4 style="color: #667eea; margin-bottom: 10px;">📝 Claude Session Logs</h4>
+                                <div id="sessionLogsList" style="font-size: 13px; color: #666;"></div>
+                            </div>
+                        </div>
                         <div class="timer" style="margin-top: 20px;">
                             ⏰ Session Expires: <span id="timer">--:--:--</span>
                         </div>
@@ -1682,6 +1919,8 @@ async def student_dashboard(link_id: str):
         </div>
 
         <script>
+            const LINK_ID = "{link_id}";
+
             // Timer functionality
             function updateTimer() {{
                 const expiresAt = new Date('{expires_at}').getTime();
@@ -1704,30 +1943,78 @@ async def student_dashboard(link_id: str):
             setInterval(updateTimer, 1000);
             updateTimer();
 
-            // Store link_id for submit button script
-            window.LINK_ID = "{link_id}";
-            localStorage.setItem('assignment_link_id', "{link_id}");
+            // Submit button handler
+            document.getElementById('submitBtn').addEventListener('click', async () => {{
+                const submitBtn = document.getElementById('submitBtn');
+                const statusDiv = document.getElementById('status');
 
-            // Inject submit button script into code-server iframe when user opens it
-            const vsCodeLink = document.querySelector('a[href*="localhost"]');
-            if (vsCodeLink) {{
-                vsCodeLink.addEventListener('click', function(e) {{
-                    // Wait for window to open, then inject script
-                    setTimeout(() => {{
-                        const codeServerScript = document.createElement('script');
-                        codeServerScript.src = 'http://localhost:8000/static/submit-button.js';
-                        codeServerScript.onload = () => {{
-                            console.log('Submit button script loaded');
-                        }};
-                        // Note: Script will be injected when user accesses code-server
-                    }}, 100);
-                }});
+                submitBtn.disabled = true;
+                statusDiv.textContent = '⏳ Submitting...';
+                statusDiv.className = 'status loading';
+                statusDiv.style.display = 'block';
+
+                try {{
+                    const response = await fetch(`/api/submit-with-files/${{LINK_ID}}`, {{
+                        method: 'POST',
+                        headers: {{'Content-Type': 'application/json'}}
+                    }});
+
+                    const data = await response.json();
+
+                    if (response.ok) {{
+                        statusDiv.textContent = '⏳ Evaluating...';
+                        statusDiv.className = 'status loading';
+
+                        // Wait a moment for evaluation to process
+                        await new Promise(r => setTimeout(r, 2000));
+
+                        // Fetch results
+                        const resultRes = await fetch(`/api/submission/${{data.submission_id}}`);
+                        const resultData = await resultRes.json();
+
+                        // Fetch session logs
+                        const logsRes = await fetch(`/api/session-logs/${{data.submission_id}}`);
+                        const logsData = logsRes.ok ? await logsRes.json() : {{'logs': []}};
+
+                        // Display results
+                        displayResults(resultData, logsData);
+
+                        statusDiv.textContent = '✅ Submission successful!';
+                        statusDiv.className = 'status success';
+                    }} else {{
+                        statusDiv.textContent = '❌ ' + (data.detail || 'Submission failed');
+                        statusDiv.className = 'status error';
+                    }}
+                }} catch (error) {{
+                    statusDiv.textContent = '❌ Error: ' + error.message;
+                    statusDiv.className = 'status error';
+                }} finally {{
+                    submitBtn.disabled = false;
+                }}
+            }});
+
+            function displayResults(submission, sessionLogs) {{
+                const scoreValue = submission.score ? submission.score.toFixed(1) : '0';
+                document.getElementById('scoreValue').textContent = scoreValue;
+                document.getElementById('feedbackDisplay').textContent = submission.feedback || 'No feedback available';
+
+                // Display session logs
+                const logsList = document.getElementById('sessionLogsList');
+                if (sessionLogs.logs && sessionLogs.logs.length > 0) {{
+                    logsList.innerHTML = sessionLogs.logs.map(log => `
+                        <div style="margin-bottom: 15px; padding: 10px; background: #f8f9fa; border-radius: 4px;">
+                            <div style="font-weight: bold; color: #333;">${{new Date(log.timestamp).toLocaleString()}}</div>
+                            <div style="margin-top: 5px; color: #666;">📌 <strong>Prompt:</strong> ${{log.prompt.substring(0, 100)}}...</div>
+                            <div style="margin-top: 5px; color: #666;">💬 <strong>Response:</strong> ${{log.response_summary.substring(0, 100)}}...</div>
+                            <div style="margin-top: 5px; color: #999;">📁 Files changed: ${{log.file_changes_count}}</div>
+                        </div>
+                    `).join('');
+                }} else {{
+                    logsList.innerHTML = '<p style="color: #999;">No Claude interactions recorded</p>';
+                }}
+
+                document.getElementById('results').style.display = 'block';
             }}
-        </script>
-        <script>
-            // This script needs to be loaded in the code-server window
-            // It will be loaded dynamically when the VS Code window opens
-            console.log('Dashboard ready. Link ID: {link_id}');
         </script>
     </body>
     </html>
