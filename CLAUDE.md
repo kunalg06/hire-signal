@@ -4,6 +4,16 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ---
 
+## 🔴 READ FIRST — Session Continuity
+
+**At the start of every session, read `AGENT.md` before doing anything else.**
+
+`AGENT.md` contains: current implementation state, active epics/stories, next story to implement, known bugs, and key architectural decisions made in prior sessions. Do not ask the user to re-explain the project context — it is all in `AGENT.md`.
+
+Full epics and stories spec: `_bmad-output/planning-artifacts/epics-and-stories.md`
+
+---
+
 ## 🎯 Project Overview
 
 **AI Engineering Assessment & Evaluation Platform** is a production-ready educational system where teachers create coding assignments and Claude AI automatically evaluates student submissions. Students access browser-based VS Code environments (code-server) running in isolated Docker containers.

@@ -90,13 +90,8 @@ RUN cat > ~/.local/share/code-server/User/settings.json << 'EOF'
 }
 EOF
 
-# Copy startup script and SUBMIT.html
-COPY start-services.py /app/start-services.py
-COPY SUBMIT.html /app/SUBMIT.html
-RUN chmod +x /app/start-services.py
+# Expose port for code-server
+EXPOSE 8080
 
-# Expose ports
-EXPOSE 8080 9999
-
-# Default command - start the services
-CMD ["python3", "/app/start-services.py"]
+# Default command - start code-server
+CMD ["code-server", "--bind", "0.0.0.0:8080", "--auth", "none", "/workspace"]

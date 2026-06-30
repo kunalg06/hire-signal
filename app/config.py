@@ -6,8 +6,8 @@ class Config:
     SECRET_KEY = os.getenv('SECRET_KEY', 'dev-secret-key-change-in-production')
     JSON_SORT_KEYS = False
 
-    # Database
-    DB_PATH = os.getenv('DB_PATH', 'assignments.db')
+    # Database - store in data/ folder
+    DB_PATH = os.getenv('DB_PATH', os.path.join('data', 'assignments.db'))
 
     # Flask
     DEBUG = False
@@ -31,7 +31,7 @@ class Config:
     DOCKER_HOST = os.getenv('DOCKER_HOST', None)
     DOCKER_PORT_RANGE_START = 6000
     DOCKER_PORT_RANGE_END = 7000
-    DOCKER_IMAGE = 'code-server-http:latest'
+    DOCKER_IMAGE = os.getenv('DOCKER_IMAGE', 'coding-platform-student:latest')
 
     # Anthropic API
     ANTHROPIC_API_KEY = os.getenv('ANTHROPIC_API_KEY')
@@ -44,7 +44,7 @@ class DevelopmentConfig(Config):
 class TestingConfig(Config):
     """Testing configuration"""
     TESTING = True
-    DB_PATH = 'test_assignments.db'
+    DB_PATH = os.path.join('data', 'test_assignments.db')
 
 class ProductionConfig(Config):
     """Production configuration"""

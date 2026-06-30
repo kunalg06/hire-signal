@@ -10,53 +10,81 @@ from app.utils.helpers import IDGenerator
 submissions_bp = Blueprint('submissions', __name__, url_prefix='/api')
 db_service = DatabaseService()
 
-def evaluate_submission_files(submission_id, assignment, session_logs=None, container_created_at=None):
-    """Evaluate submitted files with session log scoring"""
+def evaluate_submission_files(submission_id, assignment, session_logs=None,
+                              container_created_at=None, container_id=None,
+                              file_snapshot=None):
+    """Evaluate submitted files using the 8-dimension scoring engine"""
     try:
-        # Get solution.py content
+        # Get solution.py from stored submission files
         files = db_service.get_submission_files(submission_id)
-        code = None
+        code = next((c for fn, c in files if fn == 'solution.py'), "# No solution.py found")
 
-        for filename, content in files:
-            if filename == 'solution.py':
-                code = content
-                break
-
-        if not code:
-            code = "# No solution.py found"
-
-        # If session_logs not provided, retrieve from database
+        # Reload session logs from DB if not supplied
         if session_logs is None:
             log_rows = db_service.get_session_logs(submission_id)
             session_logs = [
                 {
-                    'timestamp': row[0],
-                    'interaction_type': row[1],
-                    'prompt': row[2],
-                    'response_summary': row[3],
-                    'file_changes_count': row[4]
+                    'timestamp':          row[0],
+                    'interaction_type':   row[1],
+                    'prompt':             row[2],
+                    'response_summary':   row[3],
+                    'file_changes_count': row[4],
                 }
                 for row in log_rows
             ] if log_rows else []
 
-        # If container_created_at not provided, get from session_links
+        # Fix: get container_created_at from submissions → session_links
         if container_created_at is None:
-            container_created_at = db_service.get_link_created_time(
-                [row for row in db_service.get_submission_files(submission_id)][0][1] if db_service.get_submission_files(submission_id) else None
-            )
+            submission_row = db_service.get_submission(submission_id)
+            if submission_row:
+                container_created_at = db_service.get_link_created_time(submission_row[1])
 
-        # Evaluate with Claude
-        evaluation = EvaluationService.evaluate_code(code, assignment, session_logs, container_created_at)
+        # Run 8-dimension evaluation
+        evaluation = EvaluationService.evaluate_code(
+            code=code,
+            assignment=assignment,
+            session_logs=session_logs,
+            container_created_at=container_created_at,
+            container_id=container_id,
+            file_snapshot=file_snapshot,
+        )
 
-        # Update submission with evaluation results
+        # Persist base result to submissions table
         db_service.update_submission_evaluation(
             submission_id,
             evaluation["score"],
             evaluation["feedback"],
-            evaluation["evaluation_details"]
+            evaluation["evaluation_details"],
         )
 
-        print(f"Evaluation complete for submission {submission_id}: score={evaluation['score']:.1f}")
+        # Persist per-dimension scores
+        dims = evaluation.get("dimensions", {})
+        for dimension, dim_data in dims.items():
+            score_id = IDGenerator.generate_uuid()
+            db_service.create_dimension_score(
+                score_id=score_id,
+                submission_id=submission_id,
+                dimension=dimension,
+                score=int(dim_data.get("score", 0)),
+                rationale=dim_data.get("rationale", ""),
+            )
+
+        # Persist hire evaluation verdict
+        eval_id = IDGenerator.generate_uuid()
+        db_service.create_hire_evaluation(
+            eval_id=eval_id,
+            submission_id=submission_id,
+            composite_score=evaluation["composite_score"],
+            recommendation=evaluation["hire_recommendation"],
+            dimension_weights_json=json.dumps(EvaluationService.DIMENSION_WEIGHTS),
+            narrative=evaluation.get("recommendation_rationale", ""),
+        )
+
+        print(
+            f"Evaluation complete for {submission_id}: "
+            f"score={evaluation['composite_score']:.1f} "
+            f"({evaluation['hire_recommendation']})"
+        )
 
     except Exception as e:
         print(f"Error evaluating submission {submission_id}: {e}")
@@ -155,15 +183,22 @@ def submit_with_files(link_id):
         except Exception as e:
             print(f"Warning: Failed to parse/store session logs: {e}")
 
+    # Extract full workspace snapshot NOW (before container cleanup)
+    file_snapshot = {}
+    if container_id:
+        file_snapshot = EvaluationService.extract_container_files(container_id)
+        print(f"  ✓ workspace snapshot: {len(file_snapshot)} files")
+
     # Schedule evaluation in background
     thread = threading.Thread(
         target=evaluate_submission_files,
-        args=(submission_id, assignment, session_logs, container_created_at)
+        args=(submission_id, assignment, session_logs,
+              container_created_at, container_id, file_snapshot)
     )
     thread.daemon = True
     thread.start()
 
-    # Schedule container cleanup
+    # Schedule container cleanup (after snapshot is already taken)
     cleanup_thread = threading.Thread(
         target=DockerService.cleanup_container,
         args=(container_id,)
@@ -178,37 +213,84 @@ def submit_with_files(link_id):
         "session_logs_count": len(session_logs)
     }), 202
 
-@submissions_bp.route('/submission/<submission_id>', methods=['GET'])
-def get_submission(submission_id):
-    """Retrieve submission and evaluation results"""
-    row = db_service.get_submission(submission_id)
+@submissions_bp.route('/submission/<submission_id_or_link>', methods=['GET'])
+def get_submission(submission_id_or_link):
+    """Retrieve submission and evaluation results by submission_id or link_id"""
+    # Try to get by submission_id first
+    row = db_service.get_submission(submission_id_or_link)
 
+    # If not found and looks like a link_id, try to find submission by link_id
     if not row:
-        return jsonify({"detail": "Submission not found"}), 404
+        # Get submissions with matching link_id
+        with db_service.db.get_connection() as conn:
+            cursor = conn.cursor()
+            cursor.execute('''
+                SELECT s.submission_id, s.link_id, s.assignment_id, s.code, s.submitted_at, s.evaluation_result, s.score, s.feedback, a.title
+                FROM submissions s
+                JOIN assignments a ON s.assignment_id = a.id
+                WHERE s.link_id = ?
+                ORDER BY s.submitted_at DESC
+                LIMIT 1
+            ''', (submission_id_or_link,))
+            row = cursor.fetchone()
+
+            if not row:
+                return jsonify({"detail": "Submission not found"}), 404
+
+            submission_id = row[0]
+    else:
+        submission_id = submission_id_or_link
 
     files = db_service.get_submission_files(submission_id)
 
     instructions_md = ""
     claude_logs = ""
-
     for filename, content in files:
         if filename == 'instructions.md':
             instructions_md = content
         elif filename == 'claude_session.log':
             claude_logs = content
 
+    # Fetch 8-dimension scores
+    dim_rows = db_service.get_dimension_scores(submission_id)
+    dimensions = {
+        r[0]: {"score": r[1], "rationale": r[2], "scoring_method": r[3]}
+        for r in dim_rows
+    } if dim_rows else {}
+
+    # Fetch hire evaluation
+    hire_row = db_service.get_hire_evaluation(submission_id)
+    if hire_row:
+        hire_data = {
+            "composite_score":          hire_row[0],
+            "hire_recommendation":      hire_row[1],
+            "dimension_weights":        json.loads(hire_row[2]) if hire_row[2] else {},
+            "recommendation_rationale": hire_row[3],
+            "is_overridden":            bool(hire_row[4]),
+            "override_recommendation":  hire_row[5],
+            "override_rationale":       hire_row[6],
+            "evaluated_at":             hire_row[7],
+        }
+    else:
+        hire_data = None
+
     return jsonify({
-        "submission_id": row[0],
-        "link_id": row[1],
-        "assignment_id": row[2],
-        "code": row[3],
-        "submitted_at": row[4],
+        # Core submission fields
+        "submission_id":    row[0],
+        "link_id":          row[1],
+        "assignment_id":    row[2],
+        "code":             row[3],
+        "submitted_at":     row[4],
         "evaluation_result": row[5],
-        "score": row[6],
-        "feedback": row[7],
+        "score":            row[6],
+        "feedback":         row[7],
         "assignment_title": row[8],
-        "instructions_md": instructions_md,
-        "claude_logs": claude_logs if claude_logs else "No Claude session logs available"
+        # Supporting content
+        "instructions_md":  instructions_md,
+        "claude_logs":      claude_logs or "No Claude session logs available",
+        # 8-dimension scoring
+        "dimensions":       dimensions,
+        "hire_evaluation":  hire_data,
     })
 
 @submissions_bp.route('/session-logs/<submission_id>', methods=['GET'])

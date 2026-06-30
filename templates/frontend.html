@@ -1,0 +1,1082 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>AI Hire-Readiness Platform</title>
+    <style>
+        *, *::before, *::after { margin: 0; padding: 0; box-sizing: border-box; }
+
+        body {
+            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            min-height: 100vh;
+        }
+
+        /* ── Beta Banner ── */
+        .beta-banner {
+            background: #fff3cd;
+            border-bottom: 1px solid #ffc107;
+            padding: 10px 20px;
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+            font-size: 0.88em;
+            color: #856404;
+        }
+        .beta-banner button {
+            background: none;
+            border: none;
+            font-size: 1.1em;
+            cursor: pointer;
+            color: #856404;
+            padding: 0 6px;
+        }
+
+        /* ── Layout ── */
+        .shell { max-width: 1200px; margin: 0 auto; padding: 20px; }
+
+        .header {
+            background: white;
+            border-radius: 12px;
+            padding: 28px 36px;
+            margin-bottom: 20px;
+            box-shadow: 0 8px 32px rgba(0,0,0,0.12);
+        }
+        .header h1 { color: #667eea; font-size: 2em; margin-bottom: 4px; }
+        .header p  { color: #777; font-size: 1em; }
+
+        /* ── Tabs ── */
+        .tabs { display: flex; gap: 6px; margin-bottom: 20px; flex-wrap: wrap; }
+        .tab-btn {
+            background: rgba(255,255,255,0.25);
+            color: white;
+            border: 2px solid rgba(255,255,255,0.4);
+            padding: 10px 20px;
+            border-radius: 8px;
+            cursor: pointer;
+            font-size: 0.95em;
+            font-weight: 600;
+            transition: all 0.2s;
+        }
+        .tab-btn:hover  { background: rgba(255,255,255,0.4); }
+        .tab-btn.active { background: white; color: #667eea; border-color: white; }
+
+        .tab-panel { display: none; }
+        .tab-panel.active { display: block; }
+
+        /* ── Cards ── */
+        .card {
+            background: white;
+            border-radius: 12px;
+            padding: 28px;
+            box-shadow: 0 4px 20px rgba(0,0,0,0.08);
+            margin-bottom: 20px;
+        }
+        .card h2 {
+            color: #667eea;
+            font-size: 1.25em;
+            border-bottom: 2px solid #667eea;
+            padding-bottom: 10px;
+            margin-bottom: 20px;
+        }
+        .grid-2 { display: grid; grid-template-columns: 1fr 1fr; gap: 20px; }
+        @media (max-width: 768px) { .grid-2 { grid-template-columns: 1fr; } }
+
+        /* ── Forms ── */
+        .form-group { margin-bottom: 16px; }
+        label { display: block; margin-bottom: 6px; color: #333; font-weight: 500; font-size: 0.93em; }
+        input[type="text"], textarea, select {
+            width: 100%; padding: 10px 12px;
+            border: 1px solid #ddd; border-radius: 6px;
+            font-family: inherit; font-size: 0.95em;
+            transition: border-color 0.2s;
+        }
+        input:focus, textarea:focus, select:focus { outline: none; border-color: #667eea; }
+        textarea { resize: vertical; min-height: 90px; }
+        .char-count { font-size: 0.8em; color: #999; margin-top: 4px; }
+
+        .form-row { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; }
+        .form-row-3 { display: grid; grid-template-columns: 1fr 1fr 1fr; gap: 12px; }
+        @media (max-width: 600px) { .form-row, .form-row-3 { grid-template-columns: 1fr; } }
+
+        /* ── Buttons ── */
+        .btn {
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            color: white; padding: 10px 22px; border: none;
+            border-radius: 6px; cursor: pointer; font-size: 0.95em;
+            font-weight: 600; transition: all 0.2s; display: inline-block;
+        }
+        .btn:hover { transform: translateY(-1px); box-shadow: 0 4px 16px rgba(102,126,234,0.4); }
+        .btn:disabled { opacity: 0.6; cursor: not-allowed; transform: none; }
+        .btn-sm { padding: 6px 14px; font-size: 0.85em; }
+        .btn-outline {
+            background: white; color: #667eea;
+            border: 2px solid #667eea; padding: 8px 20px;
+            border-radius: 6px; cursor: pointer; font-size: 0.9em;
+            font-weight: 600; transition: all 0.2s;
+        }
+        .btn-outline:hover { background: #667eea; color: white; }
+        .btn-green { background: linear-gradient(135deg, #43a047, #2e7d32); }
+        .btn-full { width: 100%; }
+
+        /* ── Alerts ── */
+        .alert { padding: 12px 16px; border-radius: 6px; margin-bottom: 14px; display: none; font-size: 0.92em; }
+        .alert.show { display: block; }
+        .alert.success { background: #e8f5e9; color: #2e7d32; border-left: 4px solid #4caf50; }
+        .alert.error   { background: #ffebee; color: #c62828; border-left: 4px solid #f44336; }
+        .alert.info    { background: #e3f2fd; color: #1565c0; border-left: 4px solid #2196f3; }
+
+        /* ── Result panels ── */
+        .result { background: #f8f9fa; border-left: 4px solid #667eea; padding: 20px; border-radius: 8px; margin-top: 18px; display: none; }
+        .result.show { display: block; }
+        .result h3 { color: #667eea; margin-bottom: 14px; font-size: 1.05em; }
+
+        /* ── Code block ── */
+        .code-block {
+            background: #1e1e2e; color: #cdd6f4;
+            border-radius: 8px; padding: 16px;
+            font-family: 'Courier New', monospace; font-size: 0.85em;
+            white-space: pre-wrap; overflow-x: auto; max-height: 300px; overflow-y: auto;
+        }
+
+        /* ── Challenge catalog cards ── */
+        .challenge-card {
+            border: 1px solid #e0e0e0; border-radius: 8px;
+            padding: 16px; cursor: pointer; transition: all 0.2s;
+            border-left: 4px solid #667eea;
+        }
+        .challenge-card:hover { border-color: #667eea; background: #f0f2ff; box-shadow: 0 2px 8px rgba(102,126,234,0.15); }
+        .challenge-card h4 { color: #333; margin-bottom: 8px; font-size: 0.98em; }
+        .challenge-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(260px, 1fr)); gap: 14px; margin-top: 16px; }
+
+        /* ── Badges ── */
+        .badge {
+            display: inline-block; padding: 3px 10px; border-radius: 12px;
+            font-size: 0.76em; font-weight: 600; text-transform: uppercase; letter-spacing: 0.03em;
+        }
+        .badge-type     { background: #ede7f6; color: #4527a0; }
+        .badge-skill    { background: #e3f2fd; color: #0d47a1; }
+        .badge-diff     { background: #fce4ec; color: #880e4f; }
+        .badge-mode     { background: #e8f5e9; color: #1b5e20; }
+        .badge-unpub    { background: #f5f5f5; color: #757575; }
+
+        /* ── Hire recommendation badges ── */
+        .hire-badge {
+            display: inline-block; padding: 6px 18px; border-radius: 20px;
+            font-size: 0.95em; font-weight: 700; letter-spacing: 0.04em;
+        }
+        .hire-strong_hire { background: #e8f5e9; color: #1b5e20; border: 2px solid #4caf50; }
+        .hire-hire        { background: #e3f2fd; color: #0d47a1; border: 2px solid #2196f3; }
+        .hire-select      { background: #fff3e0; color: #bf360c; border: 2px solid #ff9800; }
+        .hire-pass        { background: #f5f5f5; color: #424242; border: 2px solid #9e9e9e; }
+
+        /* ── Score display ── */
+        .score-hero { text-align: center; padding: 24px 0; }
+        .score-hero .score-num { font-size: 3.5em; font-weight: 800; color: #667eea; }
+        .score-hero .score-label { color: #888; font-size: 0.9em; margin-top: 4px; }
+
+        /* ── Radar chart ── */
+        .radar-wrap { display: flex; justify-content: center; margin: 16px 0; }
+        svg.radar { overflow: visible; }
+
+        /* ── Dimension table ── */
+        .dim-table { width: 100%; border-collapse: collapse; font-size: 0.9em; }
+        .dim-table th { text-align: left; padding: 8px 10px; color: #667eea; border-bottom: 2px solid #e0e0e0; font-size: 0.85em; }
+        .dim-table td { padding: 9px 10px; border-bottom: 1px solid #f0f0f0; vertical-align: top; }
+        .dim-table tr:last-child td { border-bottom: none; }
+        .dim-score-bar { display: flex; align-items: center; gap: 8px; }
+        .bar-bg { flex: 1; height: 8px; background: #e0e0e0; border-radius: 4px; }
+        .bar-fill { height: 100%; border-radius: 4px; transition: width 0.6s ease; background: linear-gradient(90deg, #667eea, #764ba2); }
+        .dim-score-num { min-width: 32px; text-align: right; font-weight: 600; color: #333; }
+        .rationale-text { color: #666; font-size: 0.88em; line-height: 1.5; margin-top: 4px; }
+
+        /* ── Comparison table ── */
+        .compare-table { width: 100%; border-collapse: collapse; font-size: 0.88em; overflow-x: auto; display: block; }
+        .compare-table th { background: #f0f2ff; color: #667eea; padding: 10px 12px; text-align: left; white-space: nowrap; position: sticky; top: 0; }
+        .compare-table td { padding: 10px 12px; border-bottom: 1px solid #f0f0f0; white-space: nowrap; vertical-align: middle; }
+        .compare-table tr:hover td { background: #f8f9ff; }
+        .mini-score { display: inline-block; min-width: 28px; text-align: center; font-size: 0.85em; font-weight: 600; padding: 2px 4px; border-radius: 4px; }
+        .score-hi  { background: #e8f5e9; color: #2e7d32; }
+        .score-mid { background: #fff3e0; color: #e65100; }
+        .score-lo  { background: #ffebee; color: #c62828; }
+
+        /* ── Empty state ── */
+        .empty-state { text-align: center; padding: 40px 20px; color: #aaa; }
+        .empty-state .icon { font-size: 2.5em; margin-bottom: 12px; }
+
+        /* ── Copy input group ── */
+        .input-group { display: flex; gap: 8px; }
+        .input-group input { flex: 1; }
+
+        /* ── Tooltip ── */
+        .tooltip-icon { cursor: help; color: #999; font-size: 0.85em; margin-left: 4px; }
+
+        /* ── Collapsible ── */
+        details { margin-top: 12px; }
+        details summary { cursor: pointer; color: #667eea; font-weight: 600; font-size: 0.9em; user-select: none; }
+        details summary:hover { text-decoration: underline; }
+        details .detail-body { margin-top: 10px; }
+    </style>
+</head>
+<body>
+
+<!-- AI Beta Banner -->
+<div class="beta-banner" id="betaBanner">
+    <span>⚠️ <strong>AI Beta:</strong> Scores are experimental. Treat as one signal — human judgment holds final authority. Always review before making hiring decisions.</span>
+    <button onclick="document.getElementById('betaBanner').style.display='none'" title="Dismiss">✕</button>
+</div>
+
+<div class="shell">
+    <div class="header">
+        <h1>AI Hire-Readiness Platform</h1>
+        <p>Generate market-aligned coding challenges · Evaluate candidates across 8 AI-collaboration dimensions · Compare and decide</p>
+    </div>
+
+    <!-- Tab Nav -->
+    <div class="tabs">
+        <button class="tab-btn active" onclick="switchTab('generate', this)">⚡ Generate Challenge</button>
+        <button class="tab-btn" onclick="switchTab('catalog', this)">📚 Challenge Catalog</button>
+        <button class="tab-btn" onclick="switchTab('link', this)">🔗 Student Link</button>
+        <button class="tab-btn" onclick="switchTab('results', this)">📊 Results</button>
+        <button class="tab-btn" onclick="switchTab('compare', this)">⚖️ Compare Candidates</button>
+    </div>
+
+    <!-- ════════════════════════════════════════════════════════════ -->
+    <!-- TAB 1: Generate Challenge                                   -->
+    <!-- ════════════════════════════════════════════════════════════ -->
+    <div id="tab-generate" class="tab-panel active">
+        <div class="grid-2">
+            <div class="card">
+                <h2>Generate Challenge with AI</h2>
+                <div id="genAlert" class="alert"></div>
+
+                <form id="genForm">
+                    <div class="form-group">
+                        <label for="problemStmt">Problem Context <span style="color:#999; font-weight:400">(describe the scenario)</span></label>
+                        <textarea id="problemStmt" required maxlength="2000" rows="4"
+                            placeholder="e.g. Build a rate limiter that throttles API requests per user..."></textarea>
+                        <div class="char-count"><span id="charCount">0</span>/2000</div>
+                    </div>
+
+                    <div class="form-row">
+                        <div class="form-group">
+                            <label for="challengeType">Challenge Type</label>
+                            <select id="challengeType" required>
+                                <option value="feature_extension">Feature Extension</option>
+                                <option value="bug_fix">Bug Fix</option>
+                                <option value="refactoring">Refactoring</option>
+                                <option value="optimization">Optimization</option>
+                            </select>
+                        </div>
+                        <div class="form-group">
+                            <label for="skillArea">Skill Area</label>
+                            <select id="skillArea" required>
+                                <option value="api_integration">API Integration</option>
+                                <option value="rate_limiting">Rate Limiting</option>
+                                <option value="llm_usage">LLM Usage</option>
+                                <option value="server_monitoring">Server Monitoring</option>
+                                <option value="data_pipeline">Data Pipeline</option>
+                                <option value="game_logic">Game Logic</option>
+                            </select>
+                        </div>
+                    </div>
+
+                    <div class="form-row">
+                        <div class="form-group">
+                            <label for="difficulty">Difficulty</label>
+                            <select id="difficulty" required>
+                                <option value="medium">Medium (Mid-level)</option>
+                                <option value="easy">Easy (Junior)</option>
+                                <option value="hard">Hard (Senior/Staff)</option>
+                            </select>
+                        </div>
+                        <div class="form-group">
+                            <label for="aiMode">AI Assistance Mode
+                                <span class="tooltip-icon" title="Unguarded: Claude can give full solutions — assess HOW candidate uses AI. Guarded: Claude guidance only — candidate must reason independently.">ⓘ</span>
+                            </label>
+                            <select id="aiMode">
+                                <option value="unguarded">Unguarded (AI-era style)</option>
+                                <option value="guarded">Guarded (Classical)</option>
+                            </select>
+                        </div>
+                    </div>
+
+                    <button class="btn btn-full" type="submit" id="genBtn">⚡ Generate with AI</button>
+                </form>
+
+                <div id="genResult" class="result">
+                    <h3>Generated Challenge</h3>
+                    <div style="margin-bottom: 10px;">
+                        <div style="display:flex; gap:6px; flex-wrap:wrap; margin-bottom:10px;" id="genBadges"></div>
+                        <strong style="font-size:1.1em;" id="genTitle"></strong>
+                    </div>
+                    <div style="margin-bottom: 12px;">
+                        <strong>Description:</strong>
+                        <p id="genDesc" style="margin-top:6px; line-height:1.6; color:#444; font-size:0.93em;"></p>
+                    </div>
+                    <div style="margin-bottom: 12px;">
+                        <strong>Evaluation Criteria:</strong>
+                        <p id="genCriteria" style="margin-top:6px; line-height:1.6; color:#444; font-size:0.93em;"></p>
+                    </div>
+                    <details>
+                        <summary>View Starter Code</summary>
+                        <div class="detail-body"><div id="genCode" class="code-block"></div></div>
+                    </details>
+                    <div style="display:flex; gap:10px; margin-top:16px; flex-wrap:wrap;">
+                        <button class="btn" onclick="saveAsAssignment()">💾 Save as Assignment</button>
+                        <button class="btn btn-green" onclick="publishChallenge()" id="publishBtn" disabled>✅ Publish to Catalog</button>
+                    </div>
+                    <div style="margin-top:10px; font-size:0.82em; color:#999;" id="genChallengeId"></div>
+                </div>
+            </div>
+
+            <div class="card">
+                <h2>Type Reference</h2>
+                <div style="font-size: 0.88em; line-height: 1.8; color: #555;">
+                    <div style="margin-bottom:14px;">
+                        <span class="badge badge-type">bug_fix</span><br>
+                        Working code with intentional bugs hidden. Candidate must find and fix without hints.
+                    </div>
+                    <div style="margin-bottom:14px;">
+                        <span class="badge badge-type">feature_extension</span><br>
+                        Partial working implementation. Candidate adds a specified feature via TODO insertion points.
+                    </div>
+                    <div style="margin-bottom:14px;">
+                        <span class="badge badge-type">refactoring</span><br>
+                        Messy but working code. Candidate improves structure without changing behaviour.
+                    </div>
+                    <div style="margin-bottom:14px;">
+                        <span class="badge badge-type">optimization</span><br>
+                        Correct but slow code with a timing benchmark. Candidate improves performance.
+                    </div>
+
+                    <hr style="margin:16px 0; border-color: #eee;">
+                    <strong style="color:#333;">8 Scoring Dimensions</strong>
+                    <table style="margin-top:10px; width:100%; font-size:0.9em;">
+                        <tr><td style="color:#667eea; font-weight:600; padding:3px 0; width:32px">PD</td><td>Problem Decomposition (15%)</td></tr>
+                        <tr><td style="color:#667eea; font-weight:600; padding:3px 0">FP</td><td>First-Principles Thinking (15%)</td></tr>
+                        <tr><td style="color:#667eea; font-weight:600; padding:3px 0">CP</td><td>Creative Problem Solving (10%)</td></tr>
+                        <tr><td style="color:#667eea; font-weight:600; padding:3px 0">IQ</td><td>Iteration Quality (15%)</td></tr>
+                        <tr><td style="color:#667eea; font-weight:600; padding:3px 0">DA</td><td>Debugging with AI (15%)</td></tr>
+                        <tr><td style="color:#667eea; font-weight:600; padding:3px 0">AD</td><td>Architecture Decisions (10%)</td></tr>
+                        <tr><td style="color:#667eea; font-weight:600; padding:3px 0">CC</td><td>Communication Clarity (10%)</td></tr>
+                        <tr><td style="color:#667eea; font-weight:600; padding:3px 0">TE</td><td>Token Efficiency (10%)</td></tr>
+                    </table>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- ════════════════════════════════════════════════════════════ -->
+    <!-- TAB 2: Challenge Catalog                                    -->
+    <!-- ════════════════════════════════════════════════════════════ -->
+    <div id="tab-catalog" class="tab-panel">
+        <div class="card">
+            <h2>Challenge Catalog</h2>
+            <div id="catAlert" class="alert"></div>
+
+            <div class="form-row-3" style="align-items:flex-end;">
+                <div class="form-group" style="margin-bottom:0;">
+                    <label>Filter by Type</label>
+                    <select id="filterType">
+                        <option value="">All Types</option>
+                        <option value="bug_fix">Bug Fix</option>
+                        <option value="feature_extension">Feature Extension</option>
+                        <option value="refactoring">Refactoring</option>
+                        <option value="optimization">Optimization</option>
+                    </select>
+                </div>
+                <div class="form-group" style="margin-bottom:0;">
+                    <label>Filter by Skill</label>
+                    <select id="filterSkill">
+                        <option value="">All Skills</option>
+                        <option value="api_integration">API Integration</option>
+                        <option value="rate_limiting">Rate Limiting</option>
+                        <option value="llm_usage">LLM Usage</option>
+                        <option value="server_monitoring">Server Monitoring</option>
+                        <option value="data_pipeline">Data Pipeline</option>
+                        <option value="game_logic">Game Logic</option>
+                    </select>
+                </div>
+                <div style="display:flex; gap:8px;">
+                    <button class="btn" onclick="loadCatalog()">🔍 Filter</button>
+                    <button class="btn-outline" onclick="clearCatalogFilters()">Clear</button>
+                </div>
+            </div>
+
+            <div id="catalogGrid" class="challenge-grid">
+                <div class="empty-state"><div class="icon">📚</div><p>Loading catalog...</p></div>
+            </div>
+        </div>
+    </div>
+
+    <!-- ════════════════════════════════════════════════════════════ -->
+    <!-- TAB 3: Student Link                                         -->
+    <!-- ════════════════════════════════════════════════════════════ -->
+    <div id="tab-link" class="tab-panel">
+        <div class="grid-2">
+            <div class="card">
+                <h2>Generate Student Link</h2>
+                <div id="linkAlert" class="alert"></div>
+                <div class="form-group">
+                    <label for="assignId">Assignment ID</label>
+                    <input type="text" id="assignId" placeholder="Paste assignment ID from saved challenge">
+                </div>
+                <button class="btn btn-full" onclick="generateLink()">🔗 Generate Link</button>
+
+                <div id="linkResult" class="result">
+                    <h3>Student Access Link</h3>
+                    <div class="form-group">
+                        <label>Share this URL with the candidate:</label>
+                        <div class="input-group">
+                            <input type="text" id="studentUrl" readonly>
+                            <button class="btn btn-sm" onclick="copyField('studentUrl')">Copy</button>
+                        </div>
+                    </div>
+                    <div style="display:flex; gap:20px; font-size:0.9em; color:#555;">
+                        <span>Port: <strong id="linkPort">—</strong></span>
+                        <span>Expires: <strong id="linkExpires">—</strong></span>
+                    </div>
+                </div>
+            </div>
+
+            <div class="card">
+                <h2>Saved Assignments</h2>
+                <div id="assignmentsList" style="max-height: 400px; overflow-y: auto;">
+                    <div class="empty-state"><div class="icon">📋</div><p>Loading...</p></div>
+                </div>
+                <button class="btn-outline btn-full" style="margin-top:12px;" onclick="loadAssignments()">↺ Refresh</button>
+            </div>
+        </div>
+    </div>
+
+    <!-- ════════════════════════════════════════════════════════════ -->
+    <!-- TAB 4: Results                                              -->
+    <!-- ════════════════════════════════════════════════════════════ -->
+    <div id="tab-results" class="tab-panel">
+        <div class="card">
+            <h2>View Submission Results</h2>
+            <div id="resAlert" class="alert"></div>
+            <div class="input-group" style="margin-bottom:4px;">
+                <input type="text" id="submissionId" placeholder="Enter submission ID or link ID">
+                <button class="btn" onclick="loadResults()">View</button>
+            </div>
+        </div>
+
+        <div id="resultsPanel" style="display:none;">
+            <div class="grid-2">
+                <!-- Score + Hire Verdict -->
+                <div class="card">
+                    <h2>Hire Assessment</h2>
+                    <div class="score-hero">
+                        <div class="score-num" id="resScore">--</div>
+                        <div class="score-label">Composite Score / 100</div>
+                        <div style="margin-top: 14px;" id="resHireBadge"></div>
+                    </div>
+                    <p id="resNarrative" style="color:#555; line-height:1.7; font-size:0.92em; margin-top:10px;"></p>
+                    <div style="margin-top:14px; font-size:0.8em; color:#aaa;" id="resAssignment"></div>
+                </div>
+
+                <!-- Radar Chart -->
+                <div class="card" style="display:flex; flex-direction:column; align-items:center; justify-content:center;">
+                    <h2 style="align-self:flex-start;">8-Dimension Profile</h2>
+                    <div class="radar-wrap">
+                        <svg id="radarSvg" class="radar" width="220" height="220" viewBox="0 0 220 220"></svg>
+                    </div>
+                    <div style="font-size:0.75em; color:#aaa; text-align:center; margin-top:6px;">
+                        PD·FP·CP·IQ·DA·AD·CC·TE — hover for full names
+                    </div>
+                </div>
+            </div>
+
+            <!-- Dimension breakdown -->
+            <div class="card">
+                <h2>Dimension Breakdown</h2>
+                <table class="dim-table" id="dimTable">
+                    <thead>
+                        <tr>
+                            <th style="width:200px;">Dimension</th>
+                            <th>Score</th>
+                            <th>Evidence</th>
+                        </tr>
+                    </thead>
+                    <tbody id="dimTableBody"></tbody>
+                </table>
+            </div>
+
+            <!-- Full feedback collapsible -->
+            <div class="card">
+                <details>
+                    <summary>Full AI Feedback</summary>
+                    <div class="detail-body">
+                        <pre id="resFeedback" style="white-space:pre-wrap; font-size:0.88em; color:#444; line-height:1.6;"></pre>
+                    </div>
+                </details>
+            </div>
+        </div>
+    </div>
+
+    <!-- ════════════════════════════════════════════════════════════ -->
+    <!-- TAB 5: Compare Candidates                                   -->
+    <!-- ════════════════════════════════════════════════════════════ -->
+    <div id="tab-compare" class="tab-panel">
+        <div class="card">
+            <h2>Candidate Comparison</h2>
+            <div id="cmpAlert" class="alert"></div>
+            <div class="input-group" style="margin-bottom:4px;">
+                <input type="text" id="compareAssignId" placeholder="Enter assignment ID to compare all candidates">
+                <button class="btn" onclick="loadCandidates()">Load Candidates</button>
+            </div>
+            <div style="font-size:0.82em; color:#aaa; margin-top:6px;">
+                All candidates who submitted to this assignment will appear ranked by composite score.
+            </div>
+        </div>
+
+        <div id="comparePanel" style="display:none;">
+            <div class="card" style="padding:0; overflow:hidden;">
+                <div style="padding: 20px 24px 12px; display:flex; justify-content:space-between; align-items:center;">
+                    <h2 style="border:none; padding:0; margin:0;">Results — <span id="cmpTotal">0</span> Candidates</h2>
+                    <div style="font-size:0.85em; color:#888;">Ranked by composite score · Visibility floor: all candidates shown</div>
+                </div>
+                <div style="overflow-x: auto;">
+                    <table class="compare-table" id="compareTable">
+                        <thead>
+                            <tr>
+                                <th>#</th>
+                                <th>Submission</th>
+                                <th>Submitted</th>
+                                <th>Score</th>
+                                <th>Verdict</th>
+                                <th title="Problem Decomposition">PD</th>
+                                <th title="First-Principles Thinking">FP</th>
+                                <th title="Creative Problem Solving">CP</th>
+                                <th title="Iteration Quality">IQ</th>
+                                <th title="Debugging with AI">DA</th>
+                                <th title="Architecture Decisions">AD</th>
+                                <th title="Communication Clarity">CC</th>
+                                <th title="Token Efficiency">TE</th>
+                                <th>Action</th>
+                            </tr>
+                        </thead>
+                        <tbody id="compareBody"></tbody>
+                    </table>
+                </div>
+            </div>
+
+            <!-- Cohort averages -->
+            <div class="card" style="margin-top:16px;" id="avgCard">
+                <h2>Cohort Averages</h2>
+                <div id="avgBars"></div>
+            </div>
+        </div>
+    </div>
+
+</div><!-- /shell -->
+
+<script>
+const API = 'http://localhost:8000/api';
+let generatedChallenge = null;
+let currentChallengeId  = null;
+
+// ── Tab switching ──────────────────────────────────────────────────────────
+function switchTab(name, btn) {
+    document.querySelectorAll('.tab-panel').forEach(p => p.classList.remove('active'));
+    document.querySelectorAll('.tab-btn').forEach(b => b.classList.remove('active'));
+    document.getElementById('tab-' + name).classList.add('active');
+    btn.classList.add('active');
+
+    if (name === 'catalog')  loadCatalog();
+    if (name === 'link')     loadAssignments();
+}
+
+// ── Alerts ────────────────────────────────────────────────────────────────
+function showAlert(id, msg, type = 'info') {
+    const el = document.getElementById(id);
+    el.textContent = msg;
+    el.className = `alert show ${type}`;
+    setTimeout(() => el.classList.remove('show'), 5000);
+}
+
+// ── Character counter ──────────────────────────────────────────────────────
+document.getElementById('problemStmt').addEventListener('input', e => {
+    document.getElementById('charCount').textContent = e.target.value.length;
+});
+
+// ── Hire badge HTML ────────────────────────────────────────────────────────
+const HIRE_LABELS = {
+    strong_hire: '⭐ Strong Hire', hire: '✅ Hire',
+    select: '🟡 Select', pass: '⛔ Pass',
+};
+function hireBadgeHtml(rec) {
+    const key = rec || 'pass';
+    return `<span class="hire-badge hire-${key}">${HIRE_LABELS[key] || key}</span>`;
+}
+
+// ── Score color class ──────────────────────────────────────────────────────
+function scoreClass(s) {
+    if (s >= 70) return 'score-hi';
+    if (s >= 45) return 'score-mid';
+    return 'score-lo';
+}
+
+// ══════════════════════════════════════════════════════════════════════════
+// TAB 1 — Generate Challenge
+// ══════════════════════════════════════════════════════════════════════════
+document.getElementById('genForm').addEventListener('submit', async e => {
+    e.preventDefault();
+    const btn = document.getElementById('genBtn');
+    btn.disabled = true;
+    btn.textContent = '⏳ Generating...';
+
+    try {
+        const res = await fetch(`${API}/generate-challenge`, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({
+                problem_statement:  document.getElementById('problemStmt').value,
+                difficulty:         document.getElementById('difficulty').value,
+                challenge_type:     document.getElementById('challengeType').value,
+                skill_area:         document.getElementById('skillArea').value,
+                ai_assistance_mode: document.getElementById('aiMode').value,
+            })
+        });
+        const data = await res.json();
+        if (!res.ok) throw new Error(data.error);
+
+        generatedChallenge  = data;
+        currentChallengeId  = data.challenge_id;
+
+        document.getElementById('genTitle').textContent = data.title;
+        document.getElementById('genDesc').textContent  = data.description;
+        document.getElementById('genCriteria').textContent = data.evaluation_criteria;
+        document.getElementById('genCode').textContent  = data.starter_code;
+
+        document.getElementById('genBadges').innerHTML = `
+            <span class="badge badge-type">${data.challenge_type}</span>
+            <span class="badge badge-skill">${data.skill_area}</span>
+            <span class="badge badge-diff">${data.difficulty}</span>
+            <span class="badge badge-mode">${data.ai_assistance_mode}</span>
+        `;
+
+        if (currentChallengeId) {
+            document.getElementById('genChallengeId').textContent =
+                `Challenge ID: ${currentChallengeId} (saved as draft)`;
+            document.getElementById('publishBtn').disabled = false;
+        }
+
+        document.getElementById('genResult').classList.add('show');
+        showAlert('genAlert', 'Challenge generated and saved as draft!', 'success');
+    } catch (err) {
+        showAlert('genAlert', 'Error: ' + err.message, 'error');
+    } finally {
+        btn.disabled = false;
+        btn.textContent = '⚡ Generate with AI';
+    }
+});
+
+async function saveAsAssignment() {
+    if (!generatedChallenge) return;
+    try {
+        const res = await fetch(`${API}/assignments`, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({
+                title:              generatedChallenge.title,
+                description:        generatedChallenge.description,
+                evaluation_criteria: generatedChallenge.evaluation_criteria,
+                starter_code:       generatedChallenge.starter_code,
+            })
+        });
+        const data = await res.json();
+        if (!res.ok) throw new Error(data.error || data.detail);
+
+        const assignId = data.id;
+        showAlert('genAlert', `Saved! Assignment ID: ${assignId}`, 'success');
+        document.getElementById('assignId').value = assignId;
+
+        // copy to clipboard
+        try { await navigator.clipboard.writeText(assignId); } catch(_) {}
+    } catch (err) {
+        showAlert('genAlert', 'Error: ' + err.message, 'error');
+    }
+}
+
+async function publishChallenge() {
+    if (!currentChallengeId) return;
+    try {
+        const res = await fetch(`${API}/challenges/${currentChallengeId}/publish`, { method: 'POST' });
+        const data = await res.json();
+        if (!res.ok) throw new Error(data.error);
+        showAlert('genAlert', 'Published to catalog!', 'success');
+        document.getElementById('publishBtn').textContent = '✅ Published';
+        document.getElementById('publishBtn').disabled = true;
+    } catch (err) {
+        showAlert('genAlert', 'Error: ' + err.message, 'error');
+    }
+}
+
+// ══════════════════════════════════════════════════════════════════════════
+// TAB 2 — Challenge Catalog
+// ══════════════════════════════════════════════════════════════════════════
+async function loadCatalog() {
+    const type  = document.getElementById('filterType').value;
+    const skill = document.getElementById('filterSkill').value;
+    let url = `${API}/challenges?`;
+    if (type)  url += `challenge_type=${type}&`;
+    if (skill) url += `skill_area=${skill}`;
+
+    document.getElementById('catalogGrid').innerHTML =
+        '<div class="empty-state"><div class="icon">⏳</div><p>Loading...</p></div>';
+
+    try {
+        const res  = await fetch(url);
+        const data = await res.json();
+        if (!res.ok) throw new Error(data.error);
+
+        const challenges = data.challenges || [];
+        if (challenges.length === 0) {
+            document.getElementById('catalogGrid').innerHTML =
+                '<div class="empty-state"><div class="icon">📭</div><p>No published challenges yet.<br>Generate one and click Publish to Catalog.</p></div>';
+            return;
+        }
+
+        document.getElementById('catalogGrid').innerHTML = challenges.map(c => `
+            <div class="challenge-card" onclick="useCatalogChallenge('${c.id}', '${escHtml(c.title)}')">
+                <h4>${escHtml(c.title)}</h4>
+                <div style="display:flex; gap:5px; flex-wrap:wrap; margin-bottom:8px;">
+                    <span class="badge badge-type">${c.challenge_type}</span>
+                    <span class="badge badge-skill">${c.skill_area}</span>
+                    <span class="badge badge-diff">${c.difficulty}</span>
+                    <span class="badge badge-mode">${c.ai_assistance_mode}</span>
+                </div>
+                <p style="font-size:0.83em; color:#666; line-height:1.5; margin-bottom:8px;">
+                    ${escHtml((c.description || '').substring(0, 120))}…
+                </p>
+                <div style="font-size:0.78em; color:#aaa;">ID: ${c.id.substring(0,8)}… · Click to use</div>
+            </div>
+        `).join('');
+    } catch (err) {
+        showAlert('catAlert', 'Error: ' + err.message, 'error');
+    }
+}
+
+function clearCatalogFilters() {
+    document.getElementById('filterType').value  = '';
+    document.getElementById('filterSkill').value = '';
+    loadCatalog();
+}
+
+async function useCatalogChallenge(id, title) {
+    showAlert('catAlert', `Loading "${title}"...`, 'info');
+    try {
+        const res = await fetch(`${API}/challenges/${id}`);
+        const c   = await res.json();
+        if (!res.ok) throw new Error(c.error);
+
+        // Create an assignment from this challenge so generate-link has a valid assignment_id
+        const aRes = await fetch(`${API}/assignments`, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({
+                title:               c.title,
+                description:         c.description,
+                evaluation_criteria: c.evaluation_rubric || '',
+                starter_code:        c.starter_code || '',
+            })
+        });
+        const aData = await aRes.json();
+        if (!aRes.ok) throw new Error(aData.error || aData.detail);
+
+        document.getElementById('assignId').value = aData.id;
+        showAlert('catAlert',
+            `Assignment created from "${title}". Go to Student Link tab to generate a link.`,
+            'success');
+    } catch (err) {
+        showAlert('catAlert', 'Error: ' + err.message, 'error');
+    }
+}
+
+// ══════════════════════════════════════════════════════════════════════════
+// TAB 3 — Student Link
+// ══════════════════════════════════════════════════════════════════════════
+async function loadAssignments() {
+    try {
+        const res  = await fetch(`${API}/assignments`);
+        const data = await res.json();
+        const list = Array.isArray(data) ? data : [];
+
+        if (list.length === 0) {
+            document.getElementById('assignmentsList').innerHTML =
+                '<div class="empty-state"><div class="icon">📋</div><p>No assignments yet</p></div>';
+            return;
+        }
+
+        document.getElementById('assignmentsList').innerHTML = list.map(a => `
+            <div class="challenge-card" style="margin-bottom:8px;" onclick="document.getElementById('assignId').value='${a.id}'">
+                <div style="font-weight:600; margin-bottom:4px;">${escHtml(a.title)}</div>
+                <div style="font-size:0.8em; color:#aaa;">ID: ${a.id}</div>
+            </div>
+        `).join('');
+    } catch (err) {
+        document.getElementById('assignmentsList').innerHTML =
+            '<div class="empty-state"><p style="color:#f44336;">Error loading assignments</p></div>';
+    }
+}
+
+async function generateLink() {
+    const id = document.getElementById('assignId').value.trim();
+    if (!id) { showAlert('linkAlert', 'Enter an assignment ID', 'error'); return; }
+
+    try {
+        const res  = await fetch(`${API}/generate-link/${id}`, { method: 'POST' });
+        const data = await res.json();
+        if (!res.ok) throw new Error(data.error || data.detail);
+
+        const url = `${window.location.origin}/student/${data.link_id}`;
+        document.getElementById('studentUrl').value = url;
+        document.getElementById('linkPort').textContent =
+            data.vscode_port ? data.vscode_port : 'N/A (Docker unavailable)';
+        document.getElementById('linkExpires').textContent =
+            new Date(data.expires_at).toLocaleString();
+        document.getElementById('linkResult').classList.add('show');
+        showAlert('linkAlert', 'Link created! Share the URL with the candidate.', 'success');
+    } catch (err) {
+        showAlert('linkAlert', 'Error: ' + err.message, 'error');
+    }
+}
+
+function copyField(id) {
+    const el = document.getElementById(id);
+    const val = el.value || el.textContent;
+    navigator.clipboard.writeText(val).then(() =>
+        showAlert('linkAlert', 'Copied!', 'success')
+    );
+}
+
+// ══════════════════════════════════════════════════════════════════════════
+// TAB 4 — Results
+// ══════════════════════════════════════════════════════════════════════════
+const DIM_LABELS = {
+    problem_decomposition:     'Problem Decomposition',
+    first_principles_thinking: 'First-Principles Thinking',
+    creative_problem_solving:  'Creative Problem Solving',
+    iteration_quality:         'Iteration Quality',
+    debugging_with_ai:         'Debugging with AI',
+    architecture_decisions:    'Architecture Decisions',
+    communication_clarity:     'Communication Clarity',
+    token_efficiency:          'Token Efficiency',
+};
+const DIM_SHORT = {
+    problem_decomposition: 'PD', first_principles_thinking: 'FP',
+    creative_problem_solving: 'CP', iteration_quality: 'IQ',
+    debugging_with_ai: 'DA', architecture_decisions: 'AD',
+    communication_clarity: 'CC', token_efficiency: 'TE',
+};
+const DIM_ORDER = Object.keys(DIM_LABELS);
+
+async function loadResults() {
+    const id = document.getElementById('submissionId').value.trim();
+    if (!id) { showAlert('resAlert', 'Enter a submission or link ID', 'error'); return; }
+
+    try {
+        const res  = await fetch(`${API}/submission/${id}`);
+        const data = await res.json();
+        if (!res.ok) throw new Error(data.error || data.detail);
+
+        // Check if still evaluating
+        if (!data.score && !data.hire_evaluation) {
+            showAlert('resAlert', 'Evaluation in progress — try again in 20–40 seconds.', 'info');
+            return;
+        }
+
+        const hire = data.hire_evaluation;
+        const score = hire ? hire.composite_score : (data.score || 0);
+
+        document.getElementById('resScore').textContent = Math.round(score);
+        document.getElementById('resHireBadge').innerHTML =
+            hire ? hireBadgeHtml(hire.hire_recommendation) : '';
+        document.getElementById('resNarrative').textContent =
+            hire ? (hire.recommendation_rationale || '') : '';
+        document.getElementById('resAssignment').textContent =
+            `Assignment: ${data.assignment_title || '—'}  ·  Submitted: ${data.submitted_at || '—'}`;
+        document.getElementById('resFeedback').textContent = data.feedback || 'No feedback yet.';
+
+        // Radar chart
+        drawRadar('radarSvg', data.dimensions || {});
+
+        // Dimension table
+        const tbody = document.getElementById('dimTableBody');
+        tbody.innerHTML = DIM_ORDER.map(dim => {
+            const d = (data.dimensions || {})[dim] || {};
+            const s = d.score || 0;
+            return `
+            <tr>
+                <td>
+                    <span style="color:#667eea; font-weight:700; font-size:0.8em;">${DIM_SHORT[dim]}</span>
+                    <span style="margin-left:6px; color:#333;">${DIM_LABELS[dim]}</span>
+                </td>
+                <td style="width:160px;">
+                    <div class="dim-score-bar">
+                        <div class="bar-bg"><div class="bar-fill" style="width:${s}%;"></div></div>
+                        <span class="dim-score-num">${s}</span>
+                    </div>
+                </td>
+                <td><div class="rationale-text">${escHtml(d.rationale || '—')}</div></td>
+            </tr>`;
+        }).join('');
+
+        document.getElementById('resultsPanel').style.display = 'block';
+        showAlert('resAlert', 'Loaded!', 'success');
+    } catch (err) {
+        showAlert('resAlert', 'Error: ' + err.message, 'error');
+    }
+}
+
+// ── Radar chart (vanilla SVG) ──────────────────────────────────────────────
+function drawRadar(svgId, dimensions) {
+    const svg = document.getElementById(svgId);
+    const W = 220, cx = 110, cy = 110, r = 75, labelR = 95;
+    const n = DIM_ORDER.length;
+
+    let html = '';
+
+    // Grid rings
+    [0.25, 0.5, 0.75, 1].forEach(frac => {
+        const gr = r * frac;
+        html += `<circle cx="${cx}" cy="${cy}" r="${gr}" fill="none" stroke="#e8e8f0" stroke-width="1"/>`;
+    });
+
+    // Score labels on grid rings at right side
+    [25, 50, 75, 100].forEach(val => {
+        html += `<text x="${cx + r*val/100 + 3}" y="${cy}" font-size="8" fill="#ccc">${val}</text>`;
+    });
+
+    // Axes + labels
+    DIM_ORDER.forEach((dim, i) => {
+        const angle = (i * 2 * Math.PI / n) - Math.PI / 2;
+        const ax = cx + r * Math.cos(angle);
+        const ay = cy + r * Math.sin(angle);
+        html += `<line x1="${cx}" y1="${cy}" x2="${ax}" y2="${ay}" stroke="#e0e0e0" stroke-width="1"/>`;
+
+        const lx = cx + labelR * Math.cos(angle);
+        const ly = cy + labelR * Math.sin(angle);
+        html += `<text x="${lx}" y="${ly}" text-anchor="middle" dominant-baseline="middle"
+            font-size="10" font-weight="600" fill="#667eea">
+            <title>${DIM_LABELS[dim]}</title>${DIM_SHORT[dim]}</text>`;
+    });
+
+    // Data polygon
+    const pts = DIM_ORDER.map((dim, i) => {
+        const s   = Math.min(100, Math.max(0, (dimensions[dim]?.score || 0)));
+        const angle = (i * 2 * Math.PI / n) - Math.PI / 2;
+        return `${cx + r * (s/100) * Math.cos(angle)},${cy + r * (s/100) * Math.sin(angle)}`;
+    }).join(' ');
+
+    html += `<polygon points="${pts}" fill="rgba(102,126,234,0.25)" stroke="#667eea" stroke-width="2"/>`;
+
+    // Data dots
+    DIM_ORDER.forEach((dim, i) => {
+        const s     = Math.min(100, Math.max(0, (dimensions[dim]?.score || 0)));
+        const angle = (i * 2 * Math.PI / n) - Math.PI / 2;
+        const dx = cx + r * (s/100) * Math.cos(angle);
+        const dy = cy + r * (s/100) * Math.sin(angle);
+        html += `<circle cx="${dx}" cy="${dy}" r="3.5" fill="#667eea">
+            <title>${DIM_LABELS[dim]}: ${s}/100</title></circle>`;
+    });
+
+    svg.innerHTML = html;
+}
+
+// ══════════════════════════════════════════════════════════════════════════
+// TAB 5 — Candidate Comparison
+// ══════════════════════════════════════════════════════════════════════════
+async function loadCandidates() {
+    const id = document.getElementById('compareAssignId').value.trim();
+    if (!id) { showAlert('cmpAlert', 'Enter an assignment ID', 'error'); return; }
+
+    try {
+        const res  = await fetch(`${API}/assignments/${id}/candidates`);
+        const data = await res.json();
+        if (!res.ok) throw new Error(data.error || data.detail);
+
+        document.getElementById('cmpTotal').textContent = data.total;
+
+        if (data.total === 0) {
+            document.getElementById('compareBody').innerHTML =
+                `<tr><td colspan="14" style="text-align:center; padding:30px; color:#aaa;">
+                    No submissions yet for this assignment.</td></tr>`;
+            document.getElementById('comparePanel').style.display = 'block';
+            return;
+        }
+
+        document.getElementById('compareBody').innerHTML = data.candidates.map(c => {
+            const score = c.composite_score || c.score || 0;
+            const dimCells = DIM_ORDER.map(dim => {
+                const s = c.dimensions?.[dim]?.score ?? '—';
+                const cls = typeof s === 'number' ? scoreClass(s) : '';
+                return `<td><span class="mini-score ${cls}">${s}</span></td>`;
+            }).join('');
+
+            return `<tr>
+                <td style="font-weight:700; color:#667eea;">#${c.rank}</td>
+                <td style="font-family:monospace; font-size:0.82em; color:#888;">${c.submission_id.substring(0,8)}…</td>
+                <td style="color:#888;">${fmtDate(c.submitted_at)}</td>
+                <td style="font-weight:700; font-size:1.05em;">${Math.round(score)}</td>
+                <td>${hireBadgeHtml(c.hire_recommendation)}</td>
+                ${dimCells}
+                <td>
+                    <button class="btn btn-sm" onclick="viewInResults('${c.submission_id}')">View</button>
+                </td>
+            </tr>`;
+        }).join('');
+
+        // Cohort averages
+        const avgs = data.dimension_averages || {};
+        document.getElementById('avgBars').innerHTML = DIM_ORDER.map(dim => `
+            <div style="display:flex; align-items:center; gap:10px; margin-bottom:8px;">
+                <span style="min-width:220px; font-size:0.87em; color:#555;">
+                    <strong>${DIM_SHORT[dim]}</strong> ${DIM_LABELS[dim]}
+                </span>
+                <div class="bar-bg" style="flex:1;">
+                    <div class="bar-fill" style="width:${avgs[dim]||0}%; background:#b39ddb;"></div>
+                </div>
+                <span style="min-width:36px; text-align:right; font-size:0.87em; color:#555;">
+                    ${avgs[dim] ?? '—'}
+                </span>
+            </div>
+        `).join('');
+
+        document.getElementById('comparePanel').style.display = 'block';
+        showAlert('cmpAlert', `Loaded ${data.total} candidate(s).`, 'success');
+    } catch (err) {
+        showAlert('cmpAlert', 'Error: ' + err.message, 'error');
+    }
+}
+
+function viewInResults(submissionId) {
+    document.getElementById('submissionId').value = submissionId;
+    document.querySelectorAll('.tab-btn').forEach(b => b.classList.remove('active'));
+    document.querySelectorAll('.tab-panel').forEach(p => p.classList.remove('active'));
+    document.getElementById('tab-results').classList.add('active');
+    document.querySelectorAll('.tab-btn')[3].classList.add('active');
+    loadResults();
+}
+
+// ── Utilities ─────────────────────────────────────────────────────────────
+function escHtml(str) {
+    return String(str || '').replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
+}
+function fmtDate(iso) {
+    if (!iso) return '—';
+    try { return new Date(iso).toLocaleString(undefined, {dateStyle:'short', timeStyle:'short'}); }
+    catch { return iso.substring(0,16); }
+}
+
+// ── Init ──────────────────────────────────────────────────────────────────
+window.addEventListener('load', () => {
+    // nothing to preload on the generate tab
+});
+</script>
+</body>
+</html>

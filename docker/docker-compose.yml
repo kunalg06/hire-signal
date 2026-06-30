@@ -4,8 +4,8 @@ services:
   # Code Server Image Builder
   codeserver:
     build:
-      context: .
-      dockerfile: Dockerfile.codeserver
+      context: ..
+      dockerfile: docker/Dockerfile.codeserver
     image: code-server-http:latest
     container_name: code-server-builder-only
     entrypoint: "echo 'Image built successfully'"
@@ -24,11 +24,11 @@ services:
       - assignment-network
     restart: unless-stopped
 
-  # FastAPI Backend
+  # Flask Backend
   backend:
     build:
-      context: .
-      dockerfile: Dockerfile.backend
+      context: ..
+      dockerfile: docker/Dockerfile.backend
     container_name: claude-assignment-backend
     ports:
       - "8000:8000"
@@ -38,7 +38,7 @@ services:
       - DOCKER_HOST=tcp://docker-proxy:2375
     volumes:
       # Mount local data directory
-      - ./data:/app/data
+      - ../data:/app/data
       # Mount assignments volume (shared with codeserver containers)
       - assignments_volume:/app/assignments
       # Mount docker socket for direct access

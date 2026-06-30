@@ -2,17 +2,18 @@
 """Entry point for the Flask application"""
 
 import os
-import sys
 from dotenv import load_dotenv
+
+# Load .env variables FIRST
+load_dotenv()
+
+# Then import app
 from app import create_app
 from app.config import Config
 
-# Load environment variables
-load_dotenv()
-
 if __name__ == '__main__':
     # Get Flask environment
-    env = os.getenv('FLASK_ENV', 'production')
+    env = os.getenv('FLASK_ENV', 'development')
 
     # Create app
     app = create_app(env)
@@ -21,7 +22,9 @@ if __name__ == '__main__':
     host = Config.HOST
     port = Config.PORT
 
-    print(f"🚀 AI Engineering Assessment & Evaluation Platform")
+    print("=" * 60)
+    print("AI Engineering Assessment & Evaluation Platform")
+    print("=" * 60)
     print(f"Environment: {env}")
     print(f"Starting Flask server on http://{host}:{port}")
 

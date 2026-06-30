@@ -94,4 +94,53 @@ class Database:
                 )
             ''')
 
+            # Per-dimension scores (one row per dimension per submission)
+            cursor.execute('''
+                CREATE TABLE IF NOT EXISTS dimension_scores (
+                    id TEXT PRIMARY KEY,
+                    submission_id TEXT NOT NULL,
+                    dimension TEXT NOT NULL,
+                    score INTEGER NOT NULL,
+                    rationale TEXT,
+                    scoring_method TEXT NOT NULL DEFAULT 'llm_judge',
+                    scored_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                    FOREIGN KEY(submission_id) REFERENCES submissions(submission_id)
+                )
+            ''')
+
+            # Hire verdict with weight snapshot for auditability
+            cursor.execute('''
+                CREATE TABLE IF NOT EXISTS hire_evaluations (
+                    id TEXT PRIMARY KEY,
+                    submission_id TEXT NOT NULL,
+                    composite_score REAL NOT NULL,
+                    recommendation TEXT NOT NULL,
+                    dimension_weights_json TEXT NOT NULL,
+                    narrative TEXT,
+                    is_overridden INTEGER DEFAULT 0,
+                    override_recommendation TEXT,
+                    override_rationale TEXT,
+                    evaluated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                    FOREIGN KEY(submission_id) REFERENCES submissions(submission_id)
+                )
+            ''')
+
+            # Challenges catalog table
+            cursor.execute('''
+                CREATE TABLE IF NOT EXISTS challenges (
+                    id TEXT PRIMARY KEY,
+                    title TEXT NOT NULL,
+                    domain TEXT NOT NULL,
+                    description TEXT NOT NULL,
+                    evaluation_rubric_json TEXT,
+                    starter_code TEXT,
+                    challenge_type TEXT NOT NULL,
+                    skill_area TEXT NOT NULL,
+                    difficulty TEXT NOT NULL DEFAULT 'medium',
+                    ai_assistance_mode TEXT NOT NULL DEFAULT 'unguarded',
+                    is_published INTEGER DEFAULT 0,
+                    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+                )
+            ''')
+
             conn.commit()
