@@ -1,373 +1,333 @@
-# AI Engineering Assessment & Evaluation Platform
+# hire-signal
 
-> A comprehensive educational system for automated code assessment using Claude AI
+> AI-powered hire-readiness evaluation platform — assess candidates on real-world AI-assisted coding competency, not just algorithmic recall.
 
-![Version](https://img.shields.io/badge/version-1.0.0-blue.svg)
 ![Python](https://img.shields.io/badge/python-3.11+-blue.svg)
-![Flask](https://img.shields.io/badge/flask-3.0.0-green.svg)
+![Flask](https://img.shields.io/badge/flask-3.0-green.svg)
+![Status](https://img.shields.io/badge/status-phase%201%20complete-brightgreen.svg)
+![AI Beta](https://img.shields.io/badge/AI%20scoring-experimental-orange.svg)
 
-## 🎯 Features
+---
 
-- **Automated Code Evaluation** - Claude AI evaluates student code with detailed feedback
-- **Browser-Based IDE** - Students code in isolated Docker containers with code-server
-- **Session Logging** - Track all Claude CLI interactions for problem-solving analysis
-- **Multi-Dimensional Scoring** - Code quality (40%) + approach (30%) + efficiency (30%)
-- **Teacher Dashboard** - Create assignments, generate links, review results
-- **Student Portal** - Embedded IDE, submit directly from platform
-- **REST API** - Full API for programmatic access with integrated Docker management
-- **System Management API** - Monitor and manage containers without CLI commands
+## What is hire-signal?
 
-## 🚀 Quick Start
+Coding interviews have changed. Candidates now use AI tools on the job — and the best ones know *how* to collaborate with AI effectively, not just write code from scratch. hire-signal evaluates that skill.
+
+Employers post a challenge. Candidates solve it in an isolated browser-based VS Code environment with full Claude AI access. The platform records every Claude interaction, extracts the final workspace, and evaluates the candidate across **8 AI-collaboration dimensions** — producing a structured hire recommendation.
+
+> **AI Beta Notice:** Scores are experimental signals. Human judgment holds final authority. Always review before making hiring decisions.
+
+---
+
+## How It Works
+
+```
+Employer creates challenge
+        ↓
+Generates unique link per candidate
+        ↓
+Candidate codes in isolated Docker container
+(browser VS Code + Claude AI access)
+        ↓
+On submit: full workspace snapshot extracted
+        ↓
+8-dimension evaluation via Claude
+        ↓
+Hire recommendation: strong_hire / hire / select / pass
+        ↓
+Employer compares candidates side-by-side
+```
+
+---
+
+## 8-Dimension Scoring Framework
+
+Inspired by the ArcEval framework for AI-era engineering assessment:
+
+| # | Dimension | Weight | What It Measures |
+|---|-----------|--------|-----------------|
+| PD | Problem Decomposition | 15% | Did the candidate break the problem into logical sub-problems before diving in? |
+| FP | First-Principles Thinking | 15% | Did they reason from fundamentals vs. copy-paste AI output blindly? |
+| CP | Creative Problem Solving | 10% | Novel approaches, non-obvious solutions |
+| IQ | Iteration Quality | 15% | How well did they refine and improve with each AI interaction? |
+| DA | Debugging with AI | 15% | Did they diagnose root causes or just ask AI to fix errors? |
+| AD | Architecture Decisions | 10% | Code structure, separation of concerns, maintainability choices |
+| CC | Communication Clarity | 10% | Quality of prompts and how clearly they directed the AI |
+| TE | Token Efficiency | 10% | Got good results without excessive back-and-forth |
+
+### Hire Thresholds
+
+| Recommendation | Score |
+|---|---|
+| ⭐ Strong Hire | ≥ 85 |
+| ✅ Hire | ≥ 70 |
+| 🟡 Select | ≥ 55 |
+| ⛔ Pass | < 55 |
+
+Thresholds are Python-enforced — never delegated to Claude.
+
+---
+
+## Challenge Types
+
+| Type | Description |
+|---|---|
+| `feature_extension` | Partial working implementation — candidate adds a specified feature |
+| `bug_fix` | Working code with intentional hidden bugs — candidate must find and fix |
+| `refactoring` | Messy but correct code — candidate improves structure without changing behaviour |
+| `optimization` | Correct but slow code — candidate improves performance against a benchmark |
+
+### Skill Areas
+
+`api_integration` · `rate_limiting` · `llm_usage` · `server_monitoring` · `data_pipeline` · `game_logic`
+
+### AI Assistance Modes
+
+- **Unguarded** — Claude can give full solutions. Employer assesses *how* the candidate uses AI.
+- **Guarded** — Claude restricted to guidance only. Candidate must reason independently.
+
+---
+
+## Features (Phase 1)
+
+- **AI challenge generation** — describe a scenario, get a market-aligned coding challenge with starter code and evaluation rubric
+- **Challenge catalog** — review, publish, and reuse challenges across assessments
+- **Isolated candidate environments** — one Docker container per candidate with browser VS Code + Claude
+- **Full workspace capture** — entire `/workspace` extracted before container cleanup
+- **8-dimension evaluation** — single Claude call scores all dimensions with per-dimension rationales
+- **Candidate comparison** — ranked table of all candidates for an assignment with dimension breakdowns and cohort averages
+- **Employer dashboard** — 5-tab UI: Generate · Catalog · Link · Results · Compare
+- **SVG radar chart** — visual 8-dimension profile per candidate
+- **Human override policy** — AI scores inform, never decide
+
+---
+
+## Quick Start
 
 ### Prerequisites
+
 - Docker & Docker Compose
-- Anthropic API Key (get from https://console.anthropic.com)
-- Python 3.11+ (optional, for local development)
+- Python 3.11+
+- Anthropic API key — [console.anthropic.com](https://console.anthropic.com)
 
-### Installation
-
-```bash
-# Clone repository
-git clone <repo>
-cd coding_platforms
-
-# Copy environment template
-cp .env.example .env
-
-# Edit .env with your Anthropic API Key
-# ANTHROPIC_API_KEY=sk-ant-...
-
-# Start services with Docker Compose
-cd docker
-docker-compose up --build
-
-# OR from root directory
-docker-compose -f docker/docker-compose.yml up --build
-
-# Access the platform
-# Teacher Dashboard: http://localhost:8000
-# API Documentation: http://localhost:8000/api/docs
-# API Reference: docs/API_REFERENCE.md
-```
-
-## 📊 Architecture
-
-See [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md) for detailed architecture diagrams and system flows.
-
-## 📖 Documentation
-
-### Main Documentation
-- **[FOLDER_STRUCTURE.md](FOLDER_STRUCTURE.md)** - Project organization and file layout
-- **[docs/PROJECT_REQUIREMENTS.md](docs/PROJECT_REQUIREMENTS.md)** - Complete functional and non-functional requirements
-- **[docs/ARCHITECTURE.md](docs/ARCHITECTURE.md)** - System architecture, data flows, component diagrams
-- **[docs/API_REFERENCE.md](docs/API_REFERENCE.md)** - Complete REST API endpoint documentation with examples
-- **[CLAUDE.md](CLAUDE.md)** - Development guide and customization points
-
-### Additional Resources
-- **[docs/problem_statements.txt](docs/problem_statements.txt)** - Assignment example problems
-- **[docker/](docker/)** - Docker configuration files and Dockerfiles
-- **[scripts/](scripts/)** - Utility scripts (quickstart.sh)
-- **[tools/](tools/)** - SDK and client utilities (Python SDK)
-- **[tests/](tests/)** - Test files (currently empty, ready for tests)
-- **[data/](data/)** - Database files (auto-created)
-
-## 💻 Usage
-
-### Teacher Dashboard
-
-1. Access http://localhost:8000
-2. Create assignments with title, description, evaluation criteria, and starter code
-3. Generate unique student links for each assignment
-4. Students submit code and get AI-powered feedback
-5. View results and session logs for each submission
-
-### API Examples
-
-#### Generate Challenge with AI
-```bash
-curl -X POST http://localhost:8000/api/generate-challenge \
-  -H "Content-Type: application/json" \
-  -d '{
-    "problem_statement": "Create a function that calculates factorial of a number",
-    "difficulty": "easy"
-  }'
-```
-
-Claude AI generates complete challenge with title, description, evaluation criteria, and starter code.
-
-#### Create Assignment
-```bash
-curl -X POST http://localhost:8000/api/assignments \
-  -H "Content-Type: application/json" \
-  -d '{
-    "title": "Temperature Converter",
-    "description": "Write a function to convert Celsius to Fahrenheit",
-    "evaluation_criteria": "Function should correctly convert temperature values",
-    "starter_code": "def celsius_to_fahrenheit(c):\n    pass"
-  }'
-```
-
-#### Generate Student Link
-```bash
-curl -X POST http://localhost:8000/api/generate-link/{assignment_id}
-```
-
-Response includes unique `link_id` to share with students and port number.
-
-#### Student Submits Code
-```bash
-curl -X POST http://localhost:8000/api/submit-with-files/{link_id} \
-  -H "Content-Type: application/json" \
-  -d '{}'
-```
-
-Returns submission_id - results available after 5-10 seconds.
-
-#### Get Evaluation Results
-```bash
-curl http://localhost:8000/api/submission/{submission_id}
-```
-
-Returns score, feedback with breakdown, and Claude evaluation details.
-
-#### Get Session Logs
-```bash
-curl http://localhost:8000/api/session-logs/{submission_id}
-```
-
-Returns array of Claude CLI interactions showing student's problem-solving approach.
-
-### System Management API
-
-All Docker operations integrated into REST API. No CLI commands needed:
+### Setup
 
 ```bash
-# System Status
-curl http://localhost:8000/api/system/status
-
-# Health Check (Docker, Database, API)
-curl http://localhost:8000/api/system/health
-
-# Clean containers older than 24 hours
-curl -X POST http://localhost:8000/api/system/cleanup-old?hours=24
-
-# Force cleanup all containers
-curl -X POST http://localhost:8000/api/system/cleanup-all
-
-# Get container info
-curl http://localhost:8000/api/system/containers/{container_id}/info
-
-# View container logs
-curl http://localhost:8000/api/system/containers/{container_id}/logs?lines=100
-
-# Restart container
-curl -X POST http://localhost:8000/api/system/containers/{container_id}/restart
-
-# Stop container
-curl -X POST http://localhost:8000/api/system/containers/{container_id}/stop
-```
-
-See **[docs/API_REFERENCE.md](docs/API_REFERENCE.md)** for complete API documentation with request/response examples.
-
-## 📁 Project Structure
-
-```
-├── app/                      # Flask application
-│   ├── routes/              # API endpoint blueprints
-│   │   ├── assignments.py   # Assignment CRUD
-│   │   ├── links.py         # Student link generation
-│   │   ├── submissions.py   # Code submission & evaluation
-│   │   ├── student.py       # Student portal page
-│   │   └── management.py    # System management
-│   ├── services/            # Business logic layer
-│   │   ├── docker_service.py       # Docker operations
-│   │   ├── evaluation_service.py   # Claude API integration
-│   │   ├── session_log_service.py  # Log parsing & scoring
-│   │   ├── database_service.py     # Database operations
-│   │   └── management_service.py   # System health & monitoring
-│   ├── models/              # Data layer
-│   │   └── database.py      # SQLite connection & schema
-│   ├── utils/               # Utilities
-│   │   └── helpers.py       # RateLimiter, IDGenerator, validators
-│   └── __init__.py          # App factory
-│
-├── docker/                   # Docker configuration
-│   ├── Dockerfile           # Student environment (code-server)
-│   ├── Dockerfile.backend   # Backend service
-│   ├── Dockerfile.codeserver # Code-server builder
-│   └── docker-compose.yml   # Service orchestration
-│
-├── docs/                     # Documentation
-│   ├── ARCHITECTURE.md              # System design
-│   ├── API_REFERENCE.md             # Complete API docs
-│   ├── PROJECT_REQUIREMENTS.md      # Specifications
-│   ├── FOLDER_STRUCTURE.md          # This structure
-│   └── problem_statements.txt       # Example assignments
-│
-├── data/                     # Data directory
-│   ├── assignments.db       # SQLite database (auto-created)
-│   └── test_assignments.db  # Test database
-│
-├── scripts/                  # Utility scripts
-│   └── quickstart.sh        # Quick start setup script
-│
-├── tools/                    # SDK and utilities
-│   └── client.py            # Python SDK client
-│
-├── tests/                    # Test files
-│   └── (test files here)
-│
-├── _deprecated/             # Old implementation files
-│   ├── app.py               # Old FastAPI version
-│   └── main.py              # Old implementation
-│
-├── frontend.html            # Teacher dashboard (HTML/CSS/JS)
-├── run.py                   # Flask entry point
-├── requirements.txt         # Python dependencies
-├── .env.example             # Environment template
-├── .env                     # Environment config (not in git)
-├── CLAUDE.md                # Development guide
-└── README.md                # This file
-```
-
-## 🔧 Configuration
-
-### Environment Variables (in `.env`)
-
-**Required:**
-- `ANTHROPIC_API_KEY` - Claude API key from https://console.anthropic.com
-
-**Optional:**
-- `FLASK_ENV` - Environment: `development`, `testing`, `production` (default: development)
-- `HOST` - Server host (default: 0.0.0.0)
-- `PORT` - Server port (default: 8000)
-- `DB_PATH` - Database file path (default: assignments.db)
-- `DOCKER_HOST` - Docker daemon socket (default: auto-detect)
-- `SECRET_KEY` - Flask secret key (auto-generated in development)
-
-### Flask Configuration
-
-Modify `app/config.py` to customize:
-- Rate limiting (requests per window)
-- Docker port range (6000-7000)
-- Claude model selection
-- Session timeout duration
-- Database settings
-
-## 🧪 Testing
-
-```bash
-# Run tests
-pytest
-
-# Run with coverage
-pytest --cov=app
-
-# Run specific test file
-pytest tests/test_assignments.py
-```
-
-## 📈 Scoring System
-
-```
-Final Score = (Code Quality × 0.4) + (Approach × 0.3) + (Efficiency × 0.3)
-```
-
-### Components
-
-- **Code Quality (40%)** 
-  - Claude AI evaluation of correctness, style, edge cases, completeness
-  - Score: 0-100 points
-
-- **Approach (30%)**
-  - Analysis of problem-solving from Claude CLI session logs
-  - Iteration count: 3 points per interaction (max 15)
-  - Self-correction: +5 points per error-fix pattern (max 15)
-  - Score: 0-30 points
-
-- **Efficiency (30%)**
-  - Time spent relative to 2-hour baseline
-  - ≤0.5 hours: 30 points
-  - ≤1 hour: 25 points
-  - ≤2 hours: 20 points
-  - ≤4 hours: 10 points
-  - >4 hours: 5 points
-
-### Example Score Breakdown
-
-```
-Student submission for "Temperature Converter" assignment:
-  Code Quality:  82/100 (good implementation, handles edge cases)
-  Approach:      24/30  (3 iterations, 1 correction)
-  Efficiency:    25/30  (submitted in 1.2 hours)
-  ─────────────────────────────────────────────
-  Final Score:   78.2/100
-```
-
-## 🔒 Security Features
-
-- ✅ **Docker Isolation** - Each student gets isolated container
-- ✅ **Input Validation** - All endpoints validate and sanitize input
-- ✅ **API Key Management** - Keys from environment, never hardcoded
-- ✅ **CORS Protection** - Cross-origin request control
-- ✅ **Rate Limiting** - 5 requests per 60 seconds per IP
-- ✅ **No SQL Injection** - Parameterized queries
-- ✅ **Session Management** - 24-hour link expiration
-
-### For Production
-
-- Enable HTTPS/SSL
-- Implement JWT authentication
-- Restrict CORS to specific domains
-- Use strong SECRET_KEY from environment
-- Database encryption at rest
-- Regular security updates
-- Monitor and log all API access
-
-## 🚀 Development
-
-### Local Setup (without Docker)
-
-```bash
-# Create virtual environment
-python -m venv venv
-source venv/bin/activate  # or venv\Scripts\activate on Windows
+git clone https://github.com/kunalg06/hire-signal.git
+cd hire-signal
 
 # Install dependencies
 pip install -r requirements.txt
 
-# Set environment
-export ANTHROPIC_API_KEY="sk-ant-..."
-export FLASK_ENV=development
+# Configure environment
+cp .env.example .env
+# Edit .env and set ANTHROPIC_API_KEY=sk-ant-...
 
-# Run Flask app
+# Run the platform
 python run.py
 ```
 
-### Code Organization
+Open `http://localhost:8000` in your browser.
 
-- **routes/** - HTTP request handlers (thin layer)
-- **services/** - Business logic (thick layer)
-- **models/** - Database access (thin layer)
-- **utils/** - Shared utilities
+### Docker (full stack with candidate containers)
 
-### Adding Features
-
-1. Create API route in `app/routes/`
-2. Implement business logic in `app/services/`
-3. Add database operations in `app/models/database.py`
-4. Update `docs/API_REFERENCE.md`
-5. Add tests in `tests/`
-
-## 📞 Support & Contributing
-
-See [CLAUDE.md](CLAUDE.md) for development guidelines and customization points.
-
-For bug reports and feature requests: Open an issue in the repository.
+```bash
+cd docker
+docker-compose up --build
+```
 
 ---
 
-**Version:** 1.0.0  
-**Status:** Production Ready ✅  
-**Last Updated:** June 2026  
-**License:** MIT
+## Employer Workflow
+
+### 1. Generate a Challenge
+
+```bash
+POST /api/generate-challenge
+{
+  "problem_statement": "Build a rate limiter that throttles API requests per user",
+  "challenge_type": "feature_extension",
+  "skill_area": "rate_limiting",
+  "difficulty": "medium",
+  "ai_assistance_mode": "unguarded"
+}
+```
+
+### 2. Publish to Catalog
+
+```bash
+POST /api/challenges/{challenge_id}/publish
+```
+
+### 3. Create an Assignment and Generate a Candidate Link
+
+```bash
+POST /api/assignments
+{ "title": "...", "description": "...", "evaluation_criteria": "...", "starter_code": "..." }
+
+POST /api/generate-link/{assignment_id}
+# Returns link_id — share with candidate
+```
+
+### 4. Candidate Submits
+
+Candidate accesses their isolated VS Code environment, works with Claude, and clicks Submit. The platform captures the full workspace and starts evaluation.
+
+### 5. View Results
+
+```bash
+GET /api/submission/{submission_id}
+# Returns: composite_score, hire_recommendation, 8 dimension scores + rationales
+```
+
+### 6. Compare All Candidates
+
+```bash
+GET /api/assignments/{assignment_id}/candidates
+# Returns: ranked list with per-dimension scores and cohort averages
+```
+
+---
+
+## API Reference
+
+| Method | Endpoint | Description |
+|--------|----------|-------------|
+| `POST` | `/api/generate-challenge` | Generate AI challenge (type, skill, mode) |
+| `GET` | `/api/challenges` | List published challenges (filterable) |
+| `GET` | `/api/challenges/{id}` | Get single challenge |
+| `POST` | `/api/challenges/{id}/publish` | Publish to catalog |
+| `DELETE` | `/api/challenges/{id}` | Remove from catalog |
+| `GET` | `/api/challenges/meta/options` | Valid enum values |
+| `POST` | `/api/assignments` | Create assignment |
+| `GET` | `/api/assignments` | List all assignments |
+| `GET` | `/api/assignments/{id}` | Get assignment |
+| `GET` | `/api/assignments/{id}/candidates` | Ranked candidates with 8-dim scores |
+| `POST` | `/api/generate-link/{assignment_id}` | Generate candidate link |
+| `POST` | `/api/submit-with-files/{link_id}` | Submit workspace for evaluation |
+| `GET` | `/api/submission/{id}` | Get results (score, dimensions, hire verdict) |
+| `GET` | `/api/session-logs/{submission_id}` | Claude interaction log |
+| `GET` | `/api/system/health` | System health check |
+| `GET` | `/api/system/status` | Container and database status |
+
+Full documentation: [docs/API_REFERENCE.md](docs/API_REFERENCE.md)
+
+---
+
+## Project Structure
+
+```
+hire-signal/
+├── app/
+│   ├── routes/
+│   │   ├── assignments.py      # Assignment CRUD + candidate comparison
+│   │   ├── challenges.py       # Challenge generation + catalog
+│   │   ├── links.py            # Candidate link generation
+│   │   ├── submissions.py      # Submission + 8-dim evaluation pipeline
+│   │   ├── student.py          # Candidate workspace portal
+│   │   └── management.py       # System health & container management
+│   ├── services/
+│   │   ├── evaluation_service.py   # Claude evaluation + challenge generation
+│   │   ├── database_service.py     # All DB operations
+│   │   ├── docker_service.py       # Container lifecycle
+│   │   ├── session_log_service.py  # Claude interaction log parsing
+│   │   └── management_service.py   # System monitoring
+│   ├── models/
+│   │   └── database.py         # SQLite schema (8 tables)
+│   └── utils/
+│       └── helpers.py          # ID generation, validation, rate limiting
+├── templates/
+│   └── frontend.html           # Employer dashboard (5-tab SPA)
+├── docker/                     # Dockerfiles + compose
+├── docs/                       # Architecture, API reference, requirements
+├── scripts/                    # Setup scripts
+├── tools/
+│   └── client.py               # Python SDK for API access
+├── _bmad-output/               # Planning artifacts (epics & stories)
+├── AGENT.md                    # Session continuity for AI-assisted dev
+├── run.py                      # Flask entry point
+└── requirements.txt
+```
+
+---
+
+## Database Schema
+
+8 SQLite tables auto-created on startup:
+
+| Table | Purpose |
+|---|---|
+| `assignments` | Challenge definitions |
+| `session_links` | Candidate links → containers |
+| `submissions` | Submitted workspaces |
+| `submission_files` | Individual files per submission |
+| `session_logs` | Claude interaction log per session |
+| `challenges` | Challenge catalog (draft/published) |
+| `dimension_scores` | Per-dimension scores per submission |
+| `hire_evaluations` | Composite score + hire verdict |
+
+---
+
+## Environment Variables
+
+```env
+# Required
+ANTHROPIC_API_KEY=sk-ant-...
+
+# Optional
+FLASK_ENV=development
+PORT=8000
+DB_PATH=assignments.db
+CLAUDE_MODEL=claude-haiku-4-5-20251001
+DOCKER_HOST=                          # auto-detected
+SECRET_KEY=                           # auto-generated in dev
+```
+
+---
+
+## Roadmap
+
+### Phase 1 — Complete ✅
+- 8-dimension scoring engine
+- Market-aligned challenge generation and catalog
+- Isolated Docker candidate environments
+- Employer dashboard with radar chart and comparison view
+- Hire recommendation (strong_hire / hire / select / pass)
+
+### Phase 2 — Planned
+- Human override UI with audit log
+- Side-by-side candidate radar overlay (butterfly chart)
+- Structured candidate workspace panels + verification nudge before submit
+- Guarded mode Claude restrictions in-container
+- Seed catalog with 10 curated challenges
+- Unit test coverage
+
+---
+
+## Human Override Policy
+
+AI scores are one signal in a hiring decision, not the decision itself. The platform is designed around this principle:
+
+- Hiring managers can flag and override any score
+- Every override is logged for calibration
+- **Visibility floor**: score affects rank only — all candidates remain visible regardless of score
+- AI Beta banner is always shown on the employer dashboard
+
+---
+
+## Tech Stack
+
+- **Backend**: Python 3.11, Flask 3.0, SQLite
+- **AI**: Anthropic Claude (haiku-4-5 default, configurable)
+- **Candidate environment**: Docker, code-server (browser VS Code)
+- **Frontend**: Vanilla HTML/CSS/JS — no framework dependency
+
+---
+
+## License
+
+MIT
+
+---
+
+*Built with Claude Code · Phase 1 complete July 2026*
