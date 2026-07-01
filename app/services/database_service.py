@@ -109,6 +109,36 @@ class DatabaseService:
             ''', (submission_id,))
             return cursor.fetchone()
 
+    def list_submissions(self, recommendation_filter=None, assignment_id_filter=None):
+        """List all submissions with hire evaluation, newest first. Optional filters."""
+        with self.db.get_connection() as conn:
+            cursor = conn.cursor()
+            query = '''
+                SELECT
+                    s.submission_id,
+                    s.assignment_id,
+                    a.title            AS assignment_title,
+                    s.submitted_at,
+                    s.score,
+                    s.evaluated_at,
+                    he.composite_score,
+                    he.recommendation
+                FROM submissions s
+                JOIN assignments a ON s.assignment_id = a.id
+                LEFT JOIN hire_evaluations he ON he.submission_id = s.submission_id
+                WHERE 1=1
+            '''
+            params = []
+            if recommendation_filter:
+                query += ' AND he.recommendation = ?'
+                params.append(recommendation_filter)
+            if assignment_id_filter:
+                query += ' AND s.assignment_id = ?'
+                params.append(assignment_id_filter)
+            query += ' ORDER BY s.submitted_at DESC'
+            cursor.execute(query, params)
+            return cursor.fetchall()
+
     def get_submission_files(self, submission_id):
         """Get files from submission"""
         with self.db.get_connection() as conn:

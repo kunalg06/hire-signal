@@ -341,6 +341,24 @@ def student_dashboard(link_id):
 </div>
 
 <!-- ══════════════════════════════════════════════════════ -->
+<!-- SUBMITTED SCREEN                                       -->
+<!-- ══════════════════════════════════════════════════════ -->
+<div id="submitted" style="display:none; height:100vh; align-items:center; justify-content:center; background:linear-gradient(135deg,#667eea 0%,#764ba2 100%); flex-direction:column; gap:24px;">
+    <div style="background:white; border-radius:16px; padding:48px 52px; max-width:520px; width:90%; text-align:center; box-shadow:0 24px 64px rgba(0,0,0,0.2);">
+        <div style="font-size:3em; margin-bottom:16px;">submitted</div>
+        <h2 style="color:#333; font-size:1.5em; margin-bottom:12px;">Assessment Submitted</h2>
+        <p style="color:#666; line-height:1.7; margin-bottom:24px; font-size:0.95em;">
+            Your workspace has been captured and evaluation is running.<br>
+            AI scoring typically completes within <strong>30–60 seconds</strong>.<br>
+            Your employer will be notified when results are ready.
+        </p>
+        <div style="background:#f0f2ff; border-radius:8px; padding:14px 18px; font-size:0.85em; color:#667eea; font-weight:600;">
+            You may close this tab.
+        </div>
+    </div>
+</div>
+
+<!-- ══════════════════════════════════════════════════════ -->
 <!-- WARMUP SCREEN                                          -->
 <!-- ══════════════════════════════════════════════════════ -->
 <div id="warmup">
@@ -419,28 +437,50 @@ def student_dashboard(link_id):
         }}
 
         // Show warmup screen, poll until code-server responds
-        document.getElementById('warmup').style.display = 'flex';
+        const warmupEl = document.getElementById('warmup');
+        warmupEl.style.display = 'flex';
         const frame = document.getElementById('vsCodeFrame');
 
-        const MAX_WAIT_MS  = 45000;
+        const MAX_WAIT_MS   = 45000;
         const POLL_INTERVAL = 1500;
         const deadline = Date.now() + MAX_WAIT_MS;
+        let serverReady = false;
 
         while (Date.now() < deadline) {{
             try {{
                 // no-cors fetch throws only on network error (connection refused)
                 await fetch(VSCODE_URL, {{ mode: 'no-cors', cache: 'no-store' }});
-                // Reached here → server is up
+                serverReady = true;
                 break;
             }} catch (_) {{
                 await new Promise(r => setTimeout(r, POLL_INTERVAL));
             }}
         }}
 
-        // Load the iframe (whether we confirmed ready or timed out)
-        frame.src = VSCODE_URL;
+        warmupEl.style.display = 'none';
 
-        document.getElementById('warmup').style.display    = 'none';
+        if (!serverReady) {{
+            // Container is gone (submitted or expired) — show a clear message
+            document.getElementById('landing').style.display = 'none';
+            document.getElementById('submitted').style.display = 'flex';
+            // Rewrite the submitted card to reflect "session ended" not "just submitted"
+            document.querySelector('#submitted div').innerHTML = `
+                <div style="font-size:3em; margin-bottom:16px;">session ended</div>
+                <h2 style="color:#333; font-size:1.5em; margin-bottom:12px;">This Session Has Ended</h2>
+                <p style="color:#666; line-height:1.7; margin-bottom:24px; font-size:0.95em;">
+                    The VS Code environment for this link is no longer running.<br>
+                    This happens after submission or when the session expires.<br>
+                    Contact your employer if you need a new session link.
+                </p>
+                <div style="background:#fff3e0; border-radius:8px; padding:14px 18px; font-size:0.85em; color:#e65100; font-weight:600;">
+                    You may close this tab.
+                </div>
+            `;
+            return;
+        }}
+
+        // Server is up — load the iframe
+        frame.src = VSCODE_URL;
         document.getElementById('assessment').style.display = 'flex';
     }}
 
@@ -461,13 +501,26 @@ def student_dashboard(link_id):
                 method: 'POST',
                 headers: {{ 'Content-Type': 'application/json' }}
             }});
-            const data = await res.json();
+
+            // Safely parse JSON — server errors may return HTML
+            let data = {{}};
+            const ct = res.headers.get('content-type') || '';
+            if (ct.includes('application/json')) {{
+                data = await res.json();
+            }} else {{
+                const text = await res.text();
+                console.error('Non-JSON response from server:', res.status, text.slice(0, 200));
+                data = {{ detail: `Server error ${{res.status}} — check Flask logs` }};
+            }}
 
             closeSubmitModal();
 
             if (res.ok || res.status === 202) {{
-                showToast('✅ Submitted! Evaluation is running — you will receive results shortly.', 'success', 8000);
-                submitBtn.textContent = '✅ Submitted';
+                // Remove iframe first so code-server stops reconnecting to the now-dead container
+                const frame = document.getElementById('vsCodeFrame');
+                if (frame) frame.src = 'about:blank';
+                document.getElementById('assessment').style.display = 'none';
+                document.getElementById('submitted').style.display  = 'flex';
             }} else {{
                 showToast('❌ ' + (data.detail || 'Submission failed — please try again.'), 'error');
             }}

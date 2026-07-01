@@ -159,6 +159,15 @@ Save all files first (Ctrl+S).
                 _run(['cp', py_path, f'{container_id}:/workspace/solution.py'])
                 print(f"  Injected solution.py into {container_id[:12]}")
 
+                # docker cp writes files as root — make them writable by the coder user
+                _run([
+                    'exec', '-u', 'root', container_id,
+                    'chmod', '666',
+                    '/workspace/instructions.md',
+                    '/workspace/solution.py',
+                ], check=False)
+                print(f"  Permissions set on workspace files in {container_id[:12]}")
+
         except Exception as e:
             print(f"Warning: workspace injection failed for {container_id[:12]}: {e}")
 

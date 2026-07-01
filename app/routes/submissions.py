@@ -89,6 +89,29 @@ def evaluate_submission_files(submission_id, assignment, session_logs=None,
     except Exception as e:
         print(f"Error evaluating submission {submission_id}: {e}")
 
+@submissions_bp.route('/submissions', methods=['GET'])
+def list_submissions():
+    """List all submissions for the recruiter dashboard. Optional filters:
+    ?recommendation=strong_hire|hire|select|pass  &assignment_id=<uuid>"""
+    rec_filter    = request.args.get('recommendation', '').strip() or None
+    assign_filter = request.args.get('assignment_id', '').strip() or None
+
+    rows = db_service.list_submissions(rec_filter, assign_filter)
+    results = []
+    for row in rows:
+        results.append({
+            "submission_id":    row[0],
+            "assignment_id":    row[1],
+            "assignment_title": row[2],
+            "submitted_at":     row[3],
+            "score":            row[4],
+            "evaluated_at":     row[5],
+            "composite_score":  row[6],
+            "recommendation":   row[7],
+        })
+    return jsonify({"submissions": results, "total": len(results)}), 200
+
+
 @submissions_bp.route('/submit-with-files/<link_id>', methods=['POST'])
 def submit_with_files(link_id):
     """Submit files from student workspace"""
@@ -118,13 +141,13 @@ def submit_with_files(link_id):
         solution_content = DockerService.get_file_from_container(container_id, '/workspace/solution.py')
         if solution_content and solution_content.strip() != "":
             files_dict['solution.py'] = solution_content
-            print(f"  ✓ solution.py ({len(solution_content)} bytes)")
+            print(f"  [ok] solution.py ({len(solution_content)} bytes)")
 
         # Get instructions.md
         instructions_content = DockerService.get_file_from_container(container_id, '/workspace/instructions.md')
         if instructions_content:
             files_dict['instructions.md'] = instructions_content
-            print(f"  ✓ instructions.md ({len(instructions_content)} bytes)")
+            print(f"  [ok] instructions.md ({len(instructions_content)} bytes)")
 
         # Try to get claude session logs
         claude_log_paths = [
@@ -138,13 +161,13 @@ def submit_with_files(link_id):
             log_content = DockerService.get_file_from_container(container_id, log_path)
             if log_content:
                 files_dict['claude_session.log'] = log_content
-                print(f"  ✓ claude_session.log ({len(log_content)} bytes)")
+                print(f"  [ok] claude_session.log ({len(log_content)} bytes)")
                 break
 
     # If no solution.py found, create default
     if 'solution.py' not in files_dict:
         files_dict['solution.py'] = "# solution.py not found"
-        print("  ⚠ solution.py not found in workspace")
+        print("  [warn] solution.py not found in workspace")
 
     # Create submission record
     submission_id = IDGenerator.generate_uuid()
@@ -179,7 +202,7 @@ def submit_with_files(link_id):
                     log_entry.get('raw_json', '')
                 )
 
-            print(f"  ✓ Stored {len(session_logs)} session log entries")
+            print(f"  [ok] Stored {len(session_logs)} session log entries")
         except Exception as e:
             print(f"Warning: Failed to parse/store session logs: {e}")
 
@@ -187,7 +210,7 @@ def submit_with_files(link_id):
     file_snapshot = {}
     if container_id:
         file_snapshot = EvaluationService.extract_container_files(container_id)
-        print(f"  ✓ workspace snapshot: {len(file_snapshot)} files")
+        print(f"  [ok] workspace snapshot: {len(file_snapshot)} files")
 
     # Schedule evaluation in background
     thread = threading.Thread(

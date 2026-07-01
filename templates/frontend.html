@@ -201,6 +201,15 @@
         .score-mid { background: #fff3e0; color: #e65100; }
         .score-lo  { background: #ffebee; color: #c62828; }
 
+        /* ── Filter buttons (Results tab) ── */
+        .filter-btn { padding: 5px 14px; border: 1.5px solid #d0d0e8; border-radius: 20px; background: white; color: #888; font-size: 0.82em; font-weight: 600; cursor: pointer; transition: all 0.15s; }
+        .filter-btn:hover { border-color: #667eea; color: #667eea; }
+        .filter-btn.active { background: #667eea; color: white; border-color: #667eea; }
+
+        /* ── Clickable grid row ── */
+        .grid-row-link { cursor: pointer; }
+        .grid-row-link:hover td { background: #f0f2ff !important; }
+
         /* ── Empty state ── */
         .empty-state { text-align: center; padding: 40px 20px; color: #aaa; }
         .empty-state .icon { font-size: 2.5em; margin-bottom: 12px; }
@@ -455,30 +464,91 @@
     <!-- TAB 4: Results                                              -->
     <!-- ════════════════════════════════════════════════════════════ -->
     <div id="tab-results" class="tab-panel">
+
+        <!-- Assignment selector -->
         <div class="card">
-            <h2>View Submission Results</h2>
+            <h2>Candidate Results Board</h2>
             <div id="resAlert" class="alert"></div>
-            <div class="input-group" style="margin-bottom:4px;">
-                <input type="text" id="submissionId" placeholder="Enter submission ID or link ID">
-                <button class="btn" onclick="loadResults()">View</button>
+            <div class="input-group" style="margin-bottom:8px;">
+                <select id="resAssignSelect" style="flex:1;" onchange="loadCandidateGrid()">
+                    <option value="">— Select an assignment —</option>
+                </select>
+                <button class="btn" onclick="refreshAssignList()">Refresh</button>
             </div>
         </div>
 
+        <!-- Candidate grid -->
+        <div id="candidateGridPanel" style="display:none;">
+            <div class="card" style="padding:0; overflow:hidden;">
+                <!-- Header: filter + sort -->
+                <div style="padding:16px 24px; display:flex; align-items:center; gap:12px; flex-wrap:wrap; border-bottom:1px solid #f0f0f8;">
+                    <span style="font-weight:700; color:#333; font-size:0.95em;"><span id="gridTotal">0</span> candidates</span>
+                    <div style="display:flex; gap:6px; flex-wrap:wrap;">
+                        <button class="filter-btn active" data-filter="all"          onclick="applyFilter(this)">All</button>
+                        <button class="filter-btn"        data-filter="strong_hire"  onclick="applyFilter(this)">Strong Hire</button>
+                        <button class="filter-btn"        data-filter="hire"         onclick="applyFilter(this)">Hire</button>
+                        <button class="filter-btn"        data-filter="select"       onclick="applyFilter(this)">Select</button>
+                        <button class="filter-btn"        data-filter="pass"         onclick="applyFilter(this)">Pass</button>
+                    </div>
+                    <div style="margin-left:auto; display:flex; align-items:center; gap:8px;">
+                        <label style="font-size:0.85em; color:#888;">Sort by</label>
+                        <select id="gridSort" onchange="renderGrid()" style="font-size:0.85em; padding:4px 8px;">
+                            <option value="composite_score">Composite Score</option>
+                            <option value="problem_decomposition">PD — Problem Decomp.</option>
+                            <option value="first_principles_thinking">FP — First Principles</option>
+                            <option value="creative_problem_solving">CP — Creative Solving</option>
+                            <option value="iteration_quality">IQ — Iteration Quality</option>
+                            <option value="debugging_with_ai">DA — Debugging w/ AI</option>
+                            <option value="architecture_decisions">AD — Architecture</option>
+                            <option value="communication_clarity">CC — Communication</option>
+                            <option value="token_efficiency">TE — Token Efficiency</option>
+                        </select>
+                    </div>
+                </div>
+
+                <!-- Grid rows -->
+                <table class="compare-table" style="width:100%;">
+                    <thead>
+                        <tr>
+                            <th>#</th>
+                            <th>Submitted</th>
+                            <th>Score</th>
+                            <th>Verdict</th>
+                            <th title="Problem Decomposition">PD</th>
+                            <th title="First-Principles Thinking">FP</th>
+                            <th title="Creative Problem Solving">CP</th>
+                            <th title="Iteration Quality">IQ</th>
+                            <th title="Debugging with AI">DA</th>
+                            <th title="Architecture Decisions">AD</th>
+                            <th title="Communication Clarity">CC</th>
+                            <th title="Token Efficiency">TE</th>
+                            <th></th>
+                        </tr>
+                    </thead>
+                    <tbody id="gridBody"></tbody>
+                </table>
+            </div>
+        </div>
+
+        <!-- Detail panel (expands when a row is clicked) -->
         <div id="resultsPanel" style="display:none;">
+            <div style="padding:4px 0 12px;">
+                <button class="btn" style="background:#f5f5f5; color:#555; font-size:0.85em;"
+                    onclick="document.getElementById('resultsPanel').style.display='none'">
+                    &larr; Back to grid
+                </button>
+            </div>
             <div class="grid-2">
-                <!-- Score + Hire Verdict -->
                 <div class="card">
                     <h2>Hire Assessment</h2>
                     <div class="score-hero">
                         <div class="score-num" id="resScore">--</div>
                         <div class="score-label">Composite Score / 100</div>
-                        <div style="margin-top: 14px;" id="resHireBadge"></div>
+                        <div style="margin-top:14px;" id="resHireBadge"></div>
                     </div>
                     <p id="resNarrative" style="color:#555; line-height:1.7; font-size:0.92em; margin-top:10px;"></p>
                     <div style="margin-top:14px; font-size:0.8em; color:#aaa;" id="resAssignment"></div>
                 </div>
-
-                <!-- Radar Chart -->
                 <div class="card" style="display:flex; flex-direction:column; align-items:center; justify-content:center;">
                     <h2 style="align-self:flex-start;">8-Dimension Profile</h2>
                     <div class="radar-wrap">
@@ -489,8 +559,6 @@
                     </div>
                 </div>
             </div>
-
-            <!-- Dimension breakdown -->
             <div class="card">
                 <h2>Dimension Breakdown</h2>
                 <table class="dim-table" id="dimTable">
@@ -504,8 +572,6 @@
                     <tbody id="dimTableBody"></tbody>
                 </table>
             </div>
-
-            <!-- Full feedback collapsible -->
             <div class="card">
                 <details>
                     <summary>Full AI Feedback</summary>
@@ -588,6 +654,7 @@ function switchTab(name, btn) {
 
     if (name === 'catalog')  loadCatalog();
     if (name === 'link')     loadAssignments();
+    if (name === 'results')  refreshAssignList();
 }
 
 // ── Alerts ────────────────────────────────────────────────────────────────
@@ -855,7 +922,7 @@ function copyField(id) {
 }
 
 // ══════════════════════════════════════════════════════════════════════════
-// TAB 4 — Results
+// TAB 4 — Results (Recruiter candidate grid)
 // ══════════════════════════════════════════════════════════════════════════
 const DIM_LABELS = {
     problem_decomposition:     'Problem Decomposition',
@@ -875,43 +942,127 @@ const DIM_SHORT = {
 };
 const DIM_ORDER = Object.keys(DIM_LABELS);
 
-async function loadResults() {
-    const id = document.getElementById('submissionId').value.trim();
-    if (!id) { showAlert('resAlert', 'Enter a submission or link ID', 'error'); return; }
+// State for the candidate grid
+let _allCandidates = [];
+let _activeFilter  = 'all';
 
+async function refreshAssignList() {
     try {
-        const res  = await fetch(`${API}/submission/${id}`);
+        const res  = await fetch(`${API}/assignments`);
         const data = await res.json();
-        if (!res.ok) throw new Error(data.error || data.detail);
+        const sel  = document.getElementById('resAssignSelect');
+        const cur  = sel.value;
+        sel.innerHTML = '<option value="">— Select an assignment —</option>' +
+            data.map(a => `<option value="${a.id}" ${a.id===cur?'selected':''}>
+                ${escHtml(a.title)} <span style="color:#aaa">(${a.id.substring(0,8)})</span>
+            </option>`).join('');
+    } catch(e) { /* silent */ }
+}
 
-        // Check if still evaluating
+async function loadCandidateGrid() {
+    const assignId = document.getElementById('resAssignSelect').value;
+    if (!assignId) {
+        document.getElementById('candidateGridPanel').style.display = 'none';
+        document.getElementById('resultsPanel').style.display = 'none';
+        return;
+    }
+    showAlert('resAlert', '', '');
+    try {
+        const res  = await fetch(`${API}/assignments/${assignId}/candidates`);
+        const data = await res.json();
+        if (!res.ok) throw new Error(data.detail || 'Load failed');
+
+        _allCandidates = data.candidates || [];
+        _activeFilter  = 'all';
+        document.querySelectorAll('.filter-btn').forEach(b => b.classList.remove('active'));
+        document.querySelector('.filter-btn[data-filter="all"]').classList.add('active');
+        document.getElementById('candidateGridPanel').style.display = 'block';
+        document.getElementById('resultsPanel').style.display = 'none';
+        renderGrid();
+    } catch(err) {
+        showAlert('resAlert', 'Error: ' + err.message, 'error');
+    }
+}
+
+function applyFilter(btn) {
+    _activeFilter = btn.dataset.filter;
+    document.querySelectorAll('.filter-btn').forEach(b => b.classList.remove('active'));
+    btn.classList.add('active');
+    renderGrid();
+}
+
+function renderGrid() {
+    const sortKey = document.getElementById('gridSort').value;
+    let candidates = _activeFilter === 'all'
+        ? _allCandidates
+        : _allCandidates.filter(c => c.hire_recommendation === _activeFilter);
+
+    candidates = [...candidates].sort((a, b) => {
+        const aScore = sortKey === 'composite_score'
+            ? (a.composite_score ?? a.score ?? 0)
+            : (a.dimensions?.[sortKey]?.score ?? 0);
+        const bScore = sortKey === 'composite_score'
+            ? (b.composite_score ?? b.score ?? 0)
+            : (b.dimensions?.[sortKey]?.score ?? 0);
+        return bScore - aScore;
+    });
+
+    document.getElementById('gridTotal').textContent = candidates.length;
+
+    if (candidates.length === 0) {
+        document.getElementById('gridBody').innerHTML =
+            `<tr><td colspan="13" style="text-align:center; padding:32px; color:#aaa;">
+                No candidates match this filter.</td></tr>`;
+        return;
+    }
+
+    document.getElementById('gridBody').innerHTML = candidates.map((c, i) => {
+        const score  = c.composite_score ?? c.score ?? 0;
+        const dimCells = DIM_ORDER.map(dim => {
+            const s  = c.dimensions?.[dim]?.score;
+            const cls = typeof s === 'number' ? scoreClass(s) : '';
+            return `<td><span class="mini-score ${cls}">${s ?? '—'}</span></td>`;
+        }).join('');
+
+        return `<tr class="grid-row-link" onclick="viewCandidate('${c.submission_id}')">
+            <td style="font-weight:700; color:#667eea;">#${i+1}</td>
+            <td style="color:#888; font-size:0.85em;">${fmtDate(c.submitted_at)}</td>
+            <td style="font-weight:700; font-size:1.05em;">${Math.round(score)}</td>
+            <td>${hireBadgeHtml(c.hire_recommendation)}</td>
+            ${dimCells}
+            <td><button class="btn btn-sm" onclick="event.stopPropagation();viewCandidate('${c.submission_id}')">Detail</button></td>
+        </tr>`;
+    }).join('');
+}
+
+async function viewCandidate(submissionId) {
+    showAlert('resAlert', '', '');
+    try {
+        const res  = await fetch(`${API}/submission/${submissionId}`);
+        const data = await res.json();
+        if (!res.ok) throw new Error(data.detail || 'Load failed');
+
         if (!data.score && !data.hire_evaluation) {
-            showAlert('resAlert', 'Evaluation in progress — try again in 20–40 seconds.', 'info');
+            showAlert('resAlert', 'Evaluation still in progress — try again in 20–40 seconds.', 'info');
             return;
         }
 
-        const hire = data.hire_evaluation;
+        const hire  = data.hire_evaluation;
         const score = hire ? hire.composite_score : (data.score || 0);
 
-        document.getElementById('resScore').textContent = Math.round(score);
-        document.getElementById('resHireBadge').innerHTML =
-            hire ? hireBadgeHtml(hire.hire_recommendation) : '';
-        document.getElementById('resNarrative').textContent =
-            hire ? (hire.recommendation_rationale || '') : '';
+        document.getElementById('resScore').textContent    = Math.round(score);
+        document.getElementById('resHireBadge').innerHTML  = hire ? hireBadgeHtml(hire.hire_recommendation) : '';
+        document.getElementById('resNarrative').textContent = hire ? (hire.recommendation_rationale || '') : '';
         document.getElementById('resAssignment').textContent =
             `Assignment: ${data.assignment_title || '—'}  ·  Submitted: ${data.submitted_at || '—'}`;
         document.getElementById('resFeedback').textContent = data.feedback || 'No feedback yet.';
 
-        // Radar chart
         drawRadar('radarSvg', data.dimensions || {});
 
-        // Dimension table
-        const tbody = document.getElementById('dimTableBody');
-        tbody.innerHTML = DIM_ORDER.map(dim => {
+        document.getElementById('dimTableBody').innerHTML = DIM_ORDER.map(dim => {
             const d = (data.dimensions || {})[dim] || {};
             const s = d.score || 0;
-            return `
-            <tr>
+            return `<tr>
                 <td>
                     <span style="color:#667eea; font-weight:700; font-size:0.8em;">${DIM_SHORT[dim]}</span>
                     <span style="margin-left:6px; color:#333;">${DIM_LABELS[dim]}</span>
@@ -927,10 +1078,16 @@ async function loadResults() {
         }).join('');
 
         document.getElementById('resultsPanel').style.display = 'block';
-        showAlert('resAlert', 'Loaded!', 'success');
-    } catch (err) {
+        document.getElementById('resultsPanel').scrollIntoView({ behavior: 'smooth', block: 'start' });
+    } catch(err) {
         showAlert('resAlert', 'Error: ' + err.message, 'error');
     }
+}
+
+// Called from Compare tab's "View" button — switches to Results tab and loads candidate
+function viewInResults(submissionId) {
+    switchTab('results', document.querySelector('.tab-btn[onclick*="results"]'));
+    viewCandidate(submissionId);
 }
 
 // ── Radar chart (vanilla SVG) ──────────────────────────────────────────────
