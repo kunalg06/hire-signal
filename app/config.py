@@ -31,8 +31,8 @@ class Config:
 
     # Docker
     DOCKER_HOST = os.getenv('DOCKER_HOST', None)
-    DOCKER_PORT_RANGE_START = 6000
-    DOCKER_PORT_RANGE_END = 7000
+    DOCKER_PORT_RANGE_START = 7100
+    DOCKER_PORT_RANGE_END = 7900
     DOCKER_IMAGE = os.getenv('DOCKER_IMAGE', 'coding-platform-student:latest')
 
 class DevelopmentConfig(Config):

@@ -40,16 +40,12 @@ class EvaluationService:
         MAX_TOTAL_BYTES = 50 * 1024  # 50 KB hard cap sent to Claude
 
         try:
-            import docker
-            from app.config import Config
+            from app.services.docker_service import DockerService
 
-            docker_host = Config.DOCKER_HOST or os.getenv('DOCKER_HOST')
-            client = (docker.DockerClient(base_url=docker_host)
-                      if docker_host else docker.from_env())
-
-            container = client.containers.get(container_id)
-            bits, _ = container.get_archive(workspace)
-            tar_stream = io.BytesIO(b''.join(bits))
+            raw = DockerService.get_archive(container_id, workspace)
+            if not raw:
+                return {}
+            tar_stream = io.BytesIO(raw)
 
             files = {}
             total_bytes = 0

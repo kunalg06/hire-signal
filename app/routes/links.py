@@ -16,13 +16,16 @@ def generate_link(assignment_id):
     if not assignment_row:
         return jsonify({"detail": "Assignment not found"}), 404
 
+    # Unpack assignment fields (id, title, description, starter_code, evaluation_criteria, ...)
+    _, title, description, starter_code, evaluation_criteria = assignment_row[:5]
+
     # Create unique link
     link_id = IDGenerator.generate_link_id()
 
     # Create Docker container
     container_id = None
     port = None
-    max_retries = 100  # Limit retries to 100 ports instead of 1000
+    max_retries = 100
     retry_count = 0
 
     for port_attempt in range(Config.DOCKER_PORT_RANGE_START, Config.DOCKER_PORT_RANGE_START + max_retries):
@@ -35,6 +38,14 @@ def generate_link(assignment_id):
 
             if container_id:
                 print(f"Container started successfully: {container_id[:12]} on port {port}")
+                # Inject starter code + instructions into /workspace
+                DockerService.inject_workspace_files(
+                    container_id=container_id,
+                    title=title,
+                    description=description,
+                    criteria=evaluation_criteria or '',
+                    starter_code=starter_code or '',
+                )
                 break
             retry_count += 1
 

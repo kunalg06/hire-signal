@@ -125,6 +125,45 @@ Build order: **Epic 1 (bugs) → Epic 3 (challenge catalog) → Epic 2 (8-dim sc
 - Tab 5 — Compare Candidates: ranked table with per-dimension mini scores, cohort averages bars
 - AI Beta transparency banner (dismissible)
 
+---
+
+## Phase 1 Integration Fixes — (2026-07-02)
+
+End-to-end testing revealed and fixed 4 infrastructure bugs. No stories changed; these were gaps between spec and running system.
+
+### Fix 1 — LLM provider: Anthropic → OpenRouter
+- Added `app/services/llm_service.py` — thin 35-line wrapper around `openai` SDK pointed at OpenRouter (`https://openrouter.ai/api/v1`)
+- `LLMService.chat(prompt, max_tokens)` is the single call site; model switchable via `OPENROUTER_MODEL` env var
+- `httpx.Client(verify=False)` bypasses SSL cert issues on restricted networks
+- Replaced all `anthropic` SDK calls in `evaluation_service.py` and `management_service.py`
+- `app/config.py` updated: `OPENROUTER_API_KEY`, `OPENROUTER_MODEL`, `OPENROUTER_BASE_URL` (removed `ANTHROPIC_API_KEY`, `CLAUDE_MODEL`)
+- `requirements.txt`: added `openai>=1.0.0`, `flask-cors>=4.0.0`
+
+### Fix 2 — CORS error on API calls
+- `app/__init__.py`: added `flask-cors` → `CORS(app)` after app creation
+- Frontend: changed all hardcoded `http://localhost:8000/api` URLs to relative `/api` path
+- Root cause: browser blocked cross-origin fetch from `http://127.0.0.1:8000` to `http://localhost:8000`
+
+### Fix 3 — Docker SDK incompatible with Python 3.14
+- `docker==7.0.0` throws `URLSchemeUnknown: http+docker` with `requests>=2.32` on Python 3.14
+- Rewrote `app/services/docker_service.py` entirely using `subprocess` calls to the `docker` CLI
+- No SDK version dependencies; works identically across OS/Python versions
+- `docker/Dockerfile` fixed: added `USER root` before `apt-get`, `USER coder` before `CMD`
+
+### Fix 4 — Student workspace not populated
+- **Problem:** Containers started empty — no `instructions.md`, no `solution.py`
+- **Fix:** Added `DockerService.inject_workspace_files()` called in `links.py` immediately after container creation
+- Waits 2s for container filesystem to settle, then `docker cp` both files in
+- `instructions.md` — Story 6.1 three-panel format: Scenario / Your Task / Evaluation Criteria
+- `solution.py` — AI-generated starter code from the assignment (stub fallback if empty)
+- **Bug in fix:** `→` (U+2192) in print statement after `instructions.md` copy raised `UnicodeEncodeError` on Windows cp1252 console, silently aborting before `solution.py` was copied. Fixed by replacing with ASCII.
+
+### Fix 5 — Student page iframe not loading
+- **Root cause 1:** Port 6000 is Chrome's hard-blocked list (X11). Changed `DOCKER_PORT_RANGE_START` from 6000 to 7100 in `app/config.py`
+- **Root cause 2:** `sandbox` attribute on iframe blocked service workers that code-server relies on. Removed sandbox entirely.
+- **Root cause 3:** iframe loaded immediately at page render before code-server was warm. Now deferred: `startAssessment()` shows a spinner, polls `fetch(vscode_url, {mode:'no-cors'})` every 1.5s until code-server responds (45s timeout), then sets `iframe.src` and transitions to assessment screen.
+- Added warmup screen (`#warmup` div) between landing and assessment screens in `app/routes/student.py`
+
 ### Deferred to Phase 2
 - Epic 4 — Human override UI + flag for review
 - Epic 5 — Advanced employer UI (butterfly chart, side-by-side radar overlay)
@@ -155,11 +194,15 @@ Build order: **Epic 1 (bugs) → Epic 3 (challenge catalog) → Epic 2 (8-dim sc
 ## Architecture Constraints to Remember
 
 - **SQLite only** — no Postgres, no Redis despite requirements.txt listing them
-- **CLAUDE_MODEL** defaults to `claude-haiku-4-5-20251001` (env override: `CLAUDE_MODEL`)
+- **LLM via OpenRouter** — `LLMService` in `app/services/llm_service.py`; model set via `OPENROUTER_MODEL` env var (default `anthropic/claude-haiku-4-5`). Do NOT use `anthropic` SDK directly.
+- **Docker via subprocess CLI** — `docker` Python SDK incompatible with requests≥2.32 on Python 3.14. All Docker ops go through `DockerService` in `docker_service.py` using `subprocess`.
+- **Container port range: 7100–7900** — ports below 7000 (esp. 6000–6007) are Chrome-blocked. Never go below 7100.
+- **Workspace injection is blocking** — `inject_workspace_files()` sleeps 2s then runs `docker cp`. Link generation takes ~3–4s total. This is intentional.
+- **No `→` or non-ASCII in print() on Windows** — Windows console defaults to cp1252; Unicode arrows in print raise `UnicodeEncodeError` silently caught by outer except, aborting subsequent steps. Use ASCII only in print/log strings.
 - **Score thresholds must be Python-enforced** — never rely on Claude's own threshold logic
 - **Visibility floor** — score affects rank only, never hides candidates from comparison view
 - **Docker file extraction** — must return `{}` gracefully when Docker unavailable, never block evaluation
-- **`generate_challenge()` prompt rewrite (Story 3.3)** is the single highest-leverage change in Phase 1
+- **iframe must not use sandbox** — code-server uses service workers; sandbox blocks them. Use `allow=` permissions attribute only.
 
 ---
 

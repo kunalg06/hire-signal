@@ -8,6 +8,7 @@ load_dotenv(_env_path, override=True)
 
 # NOW import everything else
 from flask import Flask
+from flask_cors import CORS
 from app.config import get_config
 from app.models.database import Database
 from app.routes.assignments import assignments_bp
@@ -33,6 +34,9 @@ def create_app(config_name=None):
     # Load configuration
     config = get_config(config_name)
     app.config.from_object(config)
+
+    # CORS — allow all origins in development
+    CORS(app)
 
     # Initialize database
     db = Database(config.DB_PATH)
