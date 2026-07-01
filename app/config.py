@@ -24,17 +24,16 @@ class Config:
     RATE_LIMIT_REQUESTS = 5
     RATE_LIMIT_WINDOW = 60
 
-    # Claude API
-    CLAUDE_MODEL = os.getenv('CLAUDE_MODEL', 'claude-haiku-4-5-20251001')
+    # LLM — routed through OpenRouter (swap model via OPENROUTER_MODEL env var)
+    OPENROUTER_API_KEY = os.getenv('OPENROUTER_API_KEY', '')
+    OPENROUTER_MODEL   = os.getenv('OPENROUTER_MODEL', 'anthropic/claude-haiku-4-5')
+    OPENROUTER_BASE_URL = 'https://openrouter.ai/api/v1'
 
     # Docker
     DOCKER_HOST = os.getenv('DOCKER_HOST', None)
     DOCKER_PORT_RANGE_START = 6000
     DOCKER_PORT_RANGE_END = 7000
     DOCKER_IMAGE = os.getenv('DOCKER_IMAGE', 'coding-platform-student:latest')
-
-    # Anthropic API
-    ANTHROPIC_API_KEY = os.getenv('ANTHROPIC_API_KEY')
 
 class DevelopmentConfig(Config):
     """Development configuration"""

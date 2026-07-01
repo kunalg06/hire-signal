@@ -1,35 +1,13 @@
-import anthropic
 import json
 import os
 import io
 import tarfile
-import httpx
 from app.config import Config
+from app.services.llm_service import LLMService
 from app.services.session_log_service import SessionLogService
 
 class EvaluationService:
-    """Code evaluation service using Claude API"""
-
-    _client = None
-
-    @classmethod
-    def get_client(cls):
-        """Get or initialize Anthropic client lazily"""
-        if cls._client is None:
-            try:
-                # Initialize Anthropic client with API key from environment
-                api_key = os.getenv('ANTHROPIC_API_KEY')
-                if not api_key:
-                    raise ValueError("ANTHROPIC_API_KEY not set in environment")
-
-                # Use custom HTTP client with SSL verification disabled for development
-                # (handles SSL certificate issues in corporate/restricted networks)
-                http_client = httpx.Client(verify=False)
-                cls._client = anthropic.Anthropic(api_key=api_key, http_client=http_client)
-            except Exception as e:
-                print(f"Warning: Could not initialize Anthropic client: {e}")
-                return None
-        return cls._client
+    """Code evaluation service — LLM calls routed through LLMService."""
 
     # ── 8-Dimension scoring weights (must sum to 1.0) ─────────────────────
     DIMENSION_WEIGHTS = {
@@ -111,8 +89,6 @@ class EvaluationService:
         Returns the full parsed result dict.  On any failure returns a
         safe default (all dimensions score=0, recommendation='pass').
         """
-        client = EvaluationService.get_client()
-
         # ── Format session logs ──────────────────────────────────────────
         if session_logs:
             log_lines = []
@@ -218,16 +194,8 @@ Respond ONLY with valid JSON — no markdown fences, no prose:
                 "recommendation_rationale": reason,
             }
 
-        if not client:
-            return _default_result("Claude API client not available")
-
         try:
-            message = client.messages.create(
-                model=Config.CLAUDE_MODEL,
-                max_tokens=2000,
-                messages=[{"role": "user", "content": scoring_prompt}]
-            )
-            response_text = message.content[0].text.strip()
+            response_text = LLMService.chat(scoring_prompt, max_tokens=2000)
 
             # Strip markdown fences if present
             if response_text.startswith("```"):
@@ -331,10 +299,6 @@ Respond ONLY with valid JSON — no markdown fences, no prose:
                            skill_area: str = 'api_integration',
                            ai_assistance_mode: str = 'unguarded') -> dict:
         """Generate a market-aligned coding challenge using Claude AI"""
-        client = EvaluationService.get_client()
-        if not client:
-            raise Exception("Claude API client not available")
-
         mode_instruction = (
             "The starter code must contain deliberate gaps marked with TODO comments and partial "
             "logic that rewards candidates who use AI tools strategically to fill them. Leave "
@@ -421,15 +385,9 @@ Respond ONLY with valid JSON — no markdown fences, no prose before or after:
 }}"""
 
         try:
-            message = client.messages.create(
-                model=Config.CLAUDE_MODEL,
-                max_tokens=3000,
-                messages=[{"role": "user", "content": generation_prompt}]
-            )
+            response_text = LLMService.chat(generation_prompt, max_tokens=3000)
 
-            response_text = message.content[0].text.strip()
-
-            # Strip markdown fences if Claude wrapped the JSON anyway
+            # Strip markdown fences if model wrapped the JSON anyway
             if response_text.startswith("```"):
                 response_text = response_text.split("```json")[-1].split("```")[0].strip()
                 if not response_text:

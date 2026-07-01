@@ -246,14 +246,13 @@ class ManagementService:
             health["components"]["database"] = f"unhealthy: {str(e)}"
             health["overall"] = "unhealthy"
 
-        # Anthropic API health (basic check)
+        # LLM API health (OpenRouter)
         try:
-            import anthropic
-            client = anthropic.Anthropic()
-            # Just verify client is initialized
-            health["components"]["anthropic_api"] = "ready"
+            from app.services.llm_service import LLMService
+            LLMService.get_client()
+            health["components"]["llm_api"] = "ready"
         except Exception as e:
-            health["components"]["anthropic_api"] = f"error: {str(e)}"
+            health["components"]["llm_api"] = f"error: {str(e)}"
 
         return health
 
