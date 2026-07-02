@@ -39,13 +39,15 @@ def assignments():
         return jsonify({"detail": error_msg}), 400
 
     assignment_id = IDGenerator.generate_uuid()
+    challenge_id = data.get('challenge_id') or None
 
     db_service.create_assignment(
         assignment_id,
         data.get('title'),
         data.get('description', ''),
         data.get('starter_code', ''),
-        data.get('evaluation_criteria')
+        data.get('evaluation_criteria'),
+        challenge_id=challenge_id,
     )
 
     return jsonify({
@@ -53,7 +55,8 @@ def assignments():
         "title": data.get('title'),
         "description": data.get('description', ''),
         "starter_code": data.get('starter_code', ''),
-        "evaluation_criteria": data.get('evaluation_criteria')
+        "evaluation_criteria": data.get('evaluation_criteria'),
+        "challenge_id": challenge_id,
     }), 201
 
 @assignments_bp.route('/assignments/<assignment_id>', methods=['GET'])

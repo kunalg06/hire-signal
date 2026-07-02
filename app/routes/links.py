@@ -1,3 +1,5 @@
+import logging
+
 from flask import Blueprint, jsonify
 from app.services.database_service import DatabaseService
 from app.services.docker_service import DockerService
@@ -5,6 +7,7 @@ from app.utils.helpers import IDGenerator, DateTimeHelper
 from app.config import Config
 
 links_bp = Blueprint('links', __name__, url_prefix='/api')
+logger = logging.getLogger(__name__)
 db_service = DatabaseService()
 
 @links_bp.route('/generate-link/<assignment_id>', methods=['POST'])
@@ -30,14 +33,14 @@ def generate_link(assignment_id):
 
     for port_attempt in range(Config.DOCKER_PORT_RANGE_START, Config.DOCKER_PORT_RANGE_START + max_retries):
         if retry_count >= max_retries:
-            print(f"Max retries ({max_retries}) reached. Could not find available port.")
+            logger.warning("Max retries (%s) reached. Could not find available port.", max_retries)
             break
 
         try:
             container_id, port = DockerService.create_container(assignment_id, port_attempt)
 
             if container_id:
-                print(f"Container started successfully: {container_id[:12]} on port {port}")
+                logger.info("Container started successfully: %s on port %s", container_id[:12], port)
                 # Inject starter code + instructions into /workspace
                 DockerService.inject_workspace_files(
                     container_id=container_id,
@@ -55,7 +58,7 @@ def generate_link(assignment_id):
                 retry_count += 1
                 continue
             else:
-                print(f"Container creation error: {e}")
+                logger.error("Container creation error: %s", e)
                 retry_count += 1
                 continue
 

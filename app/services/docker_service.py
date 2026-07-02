@@ -6,10 +6,13 @@ CLI is more reliable and has zero SDK version dependencies.
 """
 import io
 import json
+import logging
 import os
 import subprocess
 import tarfile
 import tempfile
+
+logger = logging.getLogger(__name__)
 
 from app.config import Config
 
@@ -52,15 +55,15 @@ class DockerService:
             ])
             container_id = result.stdout.strip()
             if container_id:
-                print(f"Container started: {container_id[:12]} on port {port}")
+                logger.info("Container started: %s on port %s", container_id[:12], port)
                 return container_id, port
         except subprocess.CalledProcessError as e:
             err = e.stderr or ''
             if 'already allocated' in err or 'port is already allocated' in err:
                 raise  # let caller retry with next port
-            print(f"Error creating container: {err}")
+            logger.error("Failed to create container: %s", err)
         except Exception as e:
-            print(f"Error creating container: {e}")
+            logger.error("Failed to create container: %s", e)
 
         return None, None
 
@@ -82,7 +85,7 @@ class DockerService:
                         f = tar.extractfile(member)
                         return f.read().decode('utf-8', errors='ignore') if f else None
         except Exception as e:
-            print(f"  Could not read {file_path}: {str(e)[:60]}")
+            logger.debug("  Could not read %s: %s", file_path, str(e)[:60])
         return None
 
     @staticmethod
@@ -95,7 +98,7 @@ class DockerService:
             )
             return result.stdout
         except Exception as e:
-            print(f"Warning: get_archive failed for {container_id}: {e}")
+            logger.warning("get_archive failed for %s: %s", container_id, e)
             return b''
 
     @staticmethod
@@ -147,7 +150,7 @@ Save all files first (Ctrl+S).
                 with open(md_path, 'w', encoding='utf-8') as f:
                     f.write(instructions)
                 _run(['cp', md_path, f'{container_id}:/workspace/instructions.md'])
-                print(f"  Injected instructions.md into {container_id[:12]}")
+                logger.debug("  Injected instructions.md into %s", container_id[:12])
 
                 # solution.py
                 code = (starter_code or '').strip()
@@ -157,7 +160,7 @@ Save all files first (Ctrl+S).
                 with open(py_path, 'w', encoding='utf-8') as f:
                     f.write(code)
                 _run(['cp', py_path, f'{container_id}:/workspace/solution.py'])
-                print(f"  Injected solution.py into {container_id[:12]}")
+                logger.debug("  Injected solution.py into %s", container_id[:12])
 
                 # docker cp writes files as root — make them writable by the coder user
                 _run([
@@ -166,10 +169,10 @@ Save all files first (Ctrl+S).
                     '/workspace/instructions.md',
                     '/workspace/solution.py',
                 ], check=False)
-                print(f"  Permissions set on workspace files in {container_id[:12]}")
+                logger.debug("  Permissions set on workspace files in %s", container_id[:12])
 
         except Exception as e:
-            print(f"Warning: workspace injection failed for {container_id[:12]}: {e}")
+            logger.warning("workspace injection failed for %s: %s", container_id[:12], e)
 
     @staticmethod
     def cleanup_container(container_id: str):
@@ -179,6 +182,6 @@ Save all files first (Ctrl+S).
         try:
             _run(['stop', container_id], check=False)
             _run(['rm', container_id], check=False)
-            print(f"Cleaned up container {container_id[:12]}")
+            logger.info("Cleaned up container %s", container_id[:12])
         except Exception as e:
-            print(f"Error cleaning up container {container_id}: {e}")
+            logger.error("Failed to clean up container %s: %s", container_id, e)

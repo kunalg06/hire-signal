@@ -1,6 +1,7 @@
-from flask import Blueprint, request, jsonify
+import logging
 import threading
 import json
+from flask import Blueprint, request, jsonify
 from app.services.database_service import DatabaseService
 from app.services.docker_service import DockerService
 from app.services.session_log_service import SessionLogService
@@ -9,6 +10,9 @@ from app.utils.helpers import IDGenerator
 
 submissions_bp = Blueprint('submissions', __name__, url_prefix='/api')
 db_service = DatabaseService()
+logger = logging.getLogger(__name__)
+
+VALID_RECOMMENDATIONS = {'strong_hire', 'hire', 'select', 'pass'}
 
 def evaluate_submission_files(submission_id, assignment, session_logs=None,
                               container_created_at=None, container_id=None,
@@ -80,14 +84,15 @@ def evaluate_submission_files(submission_id, assignment, session_logs=None,
             narrative=evaluation.get("recommendation_rationale", ""),
         )
 
-        print(
-            f"Evaluation complete for {submission_id}: "
-            f"score={evaluation['composite_score']:.1f} "
-            f"({evaluation['hire_recommendation']})"
+        logger.info(
+            "Evaluation complete for %s: score=%.1f (%s)",
+            submission_id,
+            evaluation['composite_score'],
+            evaluation['hire_recommendation'],
         )
 
     except Exception as e:
-        print(f"Error evaluating submission {submission_id}: {e}")
+        logger.error("Failed to evaluate submission %s: %s", submission_id, e)
 
 @submissions_bp.route('/submissions', methods=['GET'])
 def list_submissions():
@@ -135,19 +140,19 @@ def submit_with_files(link_id):
     files_dict = {}
 
     if container_id:
-        print(f"Reading files from container {container_id[:12]}...")
+        logger.info("Reading files from container %s...", container_id[:12])
 
         # Get solution.py
         solution_content = DockerService.get_file_from_container(container_id, '/workspace/solution.py')
         if solution_content and solution_content.strip() != "":
             files_dict['solution.py'] = solution_content
-            print(f"  [ok] solution.py ({len(solution_content)} bytes)")
+            logger.debug("  [ok] solution.py (%s bytes)", len(solution_content))
 
         # Get instructions.md
         instructions_content = DockerService.get_file_from_container(container_id, '/workspace/instructions.md')
         if instructions_content:
             files_dict['instructions.md'] = instructions_content
-            print(f"  [ok] instructions.md ({len(instructions_content)} bytes)")
+            logger.debug("  [ok] instructions.md (%s bytes)", len(instructions_content))
 
         # Try to get claude session logs
         claude_log_paths = [
@@ -161,13 +166,13 @@ def submit_with_files(link_id):
             log_content = DockerService.get_file_from_container(container_id, log_path)
             if log_content:
                 files_dict['claude_session.log'] = log_content
-                print(f"  [ok] claude_session.log ({len(log_content)} bytes)")
+                logger.debug("  [ok] claude_session.log (%s bytes)", len(log_content))
                 break
 
     # If no solution.py found, create default
     if 'solution.py' not in files_dict:
         files_dict['solution.py'] = "# solution.py not found"
-        print("  [warn] solution.py not found in workspace")
+        logger.warning("solution.py not found in workspace")
 
     # Create submission record
     submission_id = IDGenerator.generate_uuid()
@@ -202,15 +207,15 @@ def submit_with_files(link_id):
                     log_entry.get('raw_json', '')
                 )
 
-            print(f"  [ok] Stored {len(session_logs)} session log entries")
+            logger.debug("  [ok] Stored %s session log entries", len(session_logs))
         except Exception as e:
-            print(f"Warning: Failed to parse/store session logs: {e}")
+            logger.warning("Failed to parse/store session logs: %s", e)
 
     # Extract full workspace snapshot NOW (before container cleanup)
     file_snapshot = {}
     if container_id:
         file_snapshot = EvaluationService.extract_container_files(container_id)
-        print(f"  [ok] workspace snapshot: {len(file_snapshot)} files")
+        logger.debug("  [ok] workspace snapshot: %s files", len(file_snapshot))
 
     # Schedule evaluation in background
     thread = threading.Thread(
@@ -248,7 +253,9 @@ def get_submission(submission_id_or_link):
         with db_service.db.get_connection() as conn:
             cursor = conn.cursor()
             cursor.execute('''
-                SELECT s.submission_id, s.link_id, s.assignment_id, s.code, s.submitted_at, s.evaluation_result, s.score, s.feedback, a.title
+                SELECT s.submission_id, s.link_id, s.assignment_id, s.code, s.submitted_at,
+                       s.evaluation_result, s.score, s.feedback, a.title, a.evaluation_criteria,
+                       s.is_flagged, s.flag_reason, s.flag_by, s.flagged_at
                 FROM submissions s
                 JOIN assignments a ON s.assignment_id = a.id
                 WHERE s.link_id = ?
@@ -308,6 +315,11 @@ def get_submission(submission_id_or_link):
         "score":            row[6],
         "feedback":         row[7],
         "assignment_title": row[8],
+        # Flag status (Story 4.3)
+        "is_flagged":  bool(row[10]) if len(row) > 10 and row[10] is not None else False,
+        "flag_reason": row[11] if len(row) > 11 else None,
+        "flag_by":     row[12] if len(row) > 12 else None,
+        "flagged_at":  row[13] if len(row) > 13 else None,
         # Supporting content
         "instructions_md":  instructions_md,
         "claude_logs":      claude_logs or "No Claude session logs available",
@@ -337,3 +349,69 @@ def get_session_logs(submission_id):
         "logs": logs,
         "total_interactions": len(logs)
     })
+
+
+@submissions_bp.route('/submissions/<submission_id>/flag', methods=['POST'])
+def flag_submission(submission_id):
+    """Flag a submission for manual review"""
+    data = request.get_json() or {}
+    reason = (data.get('reason') or '').strip()
+    if not reason:
+        return jsonify({'error': 'reason is required'}), 400
+
+    if not db_service.get_submission(submission_id):
+        return jsonify({'error': 'Submission not found'}), 404
+
+    flagged_by = (data.get('flagged_by') or '').strip() or None
+    if not db_service.flag_submission(submission_id, reason, flagged_by):
+        return jsonify({'error': 'Failed to flag submission'}), 500
+    return jsonify({
+        'submission_id': submission_id,
+        'is_flagged':    True,
+        'flag_reason':   reason,
+        'flag_by':       flagged_by,
+        'message':       'Submission flagged for manual review',
+    }), 200
+
+
+@submissions_bp.route('/submissions/<submission_id>/override', methods=['POST'])
+def override_submission(submission_id):
+    """Apply human override to the AI hire recommendation"""
+    data = request.get_json() or {}
+    override_rec       = (data.get('override_recommendation') or '').strip()
+    override_rationale = (data.get('override_rationale') or '').strip()
+
+    if not override_rec or not override_rationale:
+        return jsonify({'error': 'override_recommendation and override_rationale are both required'}), 400
+    if override_rec not in VALID_RECOMMENDATIONS:
+        return jsonify({'error': f'override_recommendation must be one of: {sorted(VALID_RECOMMENDATIONS)}'}), 400
+
+    if not db_service.get_submission(submission_id):
+        return jsonify({'error': 'Submission not found'}), 404
+
+    hire_row = db_service.get_hire_evaluation(submission_id)
+    if not hire_row:
+        return jsonify({'error': 'No evaluation found for this submission — cannot override'}), 409
+
+    if not db_service.override_hire_evaluation(submission_id, override_rec, override_rationale):
+        return jsonify({'error': 'Failed to apply override'}), 500
+
+    # Log to calibration audit table (Story 4.4)
+    override_log_id = IDGenerator.generate_uuid()
+    db_service.log_score_override(
+        override_log_id,
+        submission_id,
+        hire_row[1],        # original AI recommendation
+        override_rec,       # human override
+        override_rationale,
+    )
+
+    return jsonify({
+        'submission_id':            submission_id,
+        'is_overridden':            True,
+        'override_recommendation':  override_rec,
+        'override_rationale':       override_rationale,
+        'original_composite_score': hire_row[0],
+        'original_recommendation':  hire_row[1],
+        'message':                  'Human override applied. Original AI score preserved.',
+    }), 200

@@ -12,7 +12,7 @@ This is NOT an educational platform. It is a **hiring tool** for employers to ev
 
 ---
 
-## Key Product Decisions (from Party Mode session 2026-06-30)
+## Key Product Decisions
 
 - **8-Dimension scoring engine** (ArcEval/Vizuara framework):
   1. Problem Decomposition (15%)
@@ -29,148 +29,108 @@ This is NOT an educational platform. It is a **hiring tool** for employers to ev
 
 - **Human override policy**: AI scores inform, never decide. Employers can flag/override any score. Every override logged as calibration data. Visibility floor — score affects rank, never hides candidates.
 
-- **Guarded vs Unguarded mode**: Unguarded = Claude can give full solutions (employer assesses HOW candidate uses AI). Guarded = Claude restricted to guidance only.
+- **Guarded vs Unguarded mode**: Unguarded = Claude can give full solutions. Guarded = Claude restricted to guidance only.
 
 - **Challenge types**: `bug_fix | feature_extension | refactoring | optimization`
 - **Skill areas**: `api_integration | rate_limiting | data_pipeline | llm_usage | server_monitoring | game_logic`
 
-- **AI Beta transparency**: Always show banner to employers — "AI scoring is experimental. Human judgment holds final authority."
+---
+
+## Current Implementation State (~80% complete)
+
+### ✅ Done — Epics 1, 2, 3, 4 + Phase 1 integration fixes
+
+#### Epic 1 — Bug Fixes (done 2026-06-30)
+- Story 1.1 — efficiency score bug fixed (`submissions.py`)
+- Story 1.2 — `container_id` passed into evaluation pipeline
+- Story 1.3 — score bounds clamp: `min(100.0, max(0.0, ...))`
+
+#### Phase 1 Integration Fixes (done 2026-07-02)
+- LLM: Anthropic SDK → OpenRouter via `app/services/llm_service.py`
+- CORS: `flask-cors` + relative `/api` URLs
+- Docker SDK → subprocess CLI (`docker_service.py` rewritten)
+- Workspace injection: `inject_workspace_files()` in `links.py`
+- iframe: port range 7100–7900, removed sandbox, added warmup polling
+
+#### Epic 3 — Market-Aligned Challenge System (done 2026-07-01)
+- `challenges` table (12 cols), catalog CRUD endpoints
+- `POST /api/generate-challenge` with type/skill/mode enums + validation
+- Market-aligned generation prompt in `evaluation_service.py`
+- Auto-persist generated challenges as unpublished
+
+#### Epic 2 — 8-Dimension Scoring Engine (done 2026-07-01)
+- `dimension_scores` + `hire_evaluations` tables
+- `extract_container_files()` — full workspace snapshot (50KB cap, `{}` fallback)
+- `score_8_dimensions()` — single Claude call, all 8 keys guaranteed
+- Python-enforced thresholds (never trust Claude's)
+- Per-dimension rows persisted; `GET /api/submission/<id>` returns full 8-dim response
+
+#### Epic 4 — Candidate Comparison & Hiring Workflow (done 2026-07-02)
+
+**Story 4.1 — Schema: comparison_sessions**
+- `comparison_sessions` table in `database.py` `init_db()`
+- DB methods: `create_comparison_session`, `get_comparison_session`, `list_comparison_sessions`
+
+**Story 4.2 — Candidate comparison endpoint**
+- `GET /api/challenges/<challenge_id>/candidates` — returns ALL candidates ranked by `composite_score` (default) or any of 8 dimension keys
+- `sort_by` / `order` query params; 400 on invalid; 404 if challenge not found
+- Each candidate has: `rank`, `is_evaluated`, `dimensions` dict, `composite_score`, `hire_recommendation`
+- `dimension_averages` always returned (empty `{}` when no evaluated candidates)
+- `assignments.challenge_id` column added via migration; `POST /api/assignments` accepts optional `challenge_id`
+
+**Story 4.3 — Human override + flag**
+- `POST /api/submissions/<id>/flag` — stores `is_flagged`, `flag_reason`, `flag_by`, `flagged_at`; `reason` required (400 if missing)
+- `POST /api/submissions/<id>/override` — writes `is_overridden`, `override_recommendation`, `override_rationale` to `hire_evaluations`; original AI `composite_score` and `recommendation` NEVER touched
+- Both return 404 (not found) / 409 (no evaluation exists to override)
+- `GET /api/submission/<id>` now includes flag fields (indices 10–13)
+
+**Story 4.4 — Override logging as calibration dataset**
+- `score_overrides` table — append-only event log; every successful override inserts a row
+- `GET /api/analytics/overrides` — returns `total_overrides`, `overrides_by_direction`, `recent_overrides` (last 20), `pattern_summary` (directions ≥20% share when total ≥10)
+- `app/routes/analytics.py` — new blueprint registered in `app/__init__.py`
+
+**Story 4.5 — Visibility floor enforcement**
+- Un-evaluated candidates always sort LAST regardless of `order` direction (math.inf/-math.inf sentinel)
+- `is_evaluated` boolean on each candidate (`row[7] is not None` from `he.evaluated_at`)
+
+**Code review patches applied (2026-07-02):**
+- `database.py` — migration `except Exception` → `except sqlite3.OperationalError` (both ALTER TABLE blocks)
+- `submissions.py` — link_id fallback query now selects all 14 columns (was 9; flag fields were invisible)
+- `challenges.py` — `dim_averages` now filters by `c['is_evaluated']` (not dict truthiness) and skips None scores
+- `submissions.py` — flag/override routes check `rowcount > 0`; return 500 on silent DB failure
+
+**Frontend sync fixes (applied alongside Story 4.4):**
+- `saveAsAssignment()` — sends `challenge_id: currentChallengeId || null`
+- `useCatalogChallenge()` — sends `challenge_id: id`
+- Removed duplicate `viewInResults()` definition
+- Flag and Override buttons added to Results detail panel (wired to `/flag` and `/override` endpoints)
 
 ---
 
-## Current Implementation State (~60% complete)
+### ❌ Not Built Yet (backlog)
 
-### ✅ Done
-| Area | Files |
+| Story | Description |
 |---|---|
-| Flask REST API backbone | `app/__init__.py`, `run.py` |
-| SQLite schema (5 tables) | `app/services/database_service.py` → assignments, session_links, submissions, submission_files, session_logs |
-| Docker container lifecycle | `app/services/docker_service.py` |
-| Session log parsing | `app/services/session_log_service.py` |
-| Basic evaluation (40/30/30 hardcoded) | `app/services/evaluation_service.py` |
-| File extraction from container (3 files only) | `app/routes/submissions.py` + `docker_service.py` |
-| Basic challenge generation | `app/routes/challenges.py` + `evaluation_service.py:generate_challenge()` |
-| Teacher dashboard | `templates/frontend.html` |
-| Student workspace (dynamic HTML + code-server iframe) | `app/routes/student.py` |
-| System health / management endpoints | `app/routes/management.py` + `app/services/management_service.py` |
-| Background evaluation thread | `app/routes/submissions.py` |
-
-### ❌ Not Built Yet
-- 8-dimension scoring engine (currently hardcoded 40/30/30)
-- `challenges` catalog table + catalog endpoints
-- `dimension_scores` table, `hire_evaluations` table, `comparison_sessions` table
-- Challenge types / skill areas / ai_assistance_mode in schema and prompts
-- Full workspace snapshot (currently only solution.py, instructions.md, claude_session.log)
-- Candidate comparison endpoint
-- Hire recommendation (strong_hire/hire/select/pass)
-- Human override + flag for manual review
-- Visibility floor enforcement
-- AI Beta banner
-- Employer dashboard with radar charts and comparison view
-- Preview as Student
-- Guarded mode Claude restrictions
-- Verification nudge before submission
-- Unit tests
-
-### Known Bugs (Epic 1 — fix before adding features)
-| Bug | File | Line | Status |
-|---|---|---|---|
-| `container_created_at` always None — queried wrong table | `app/routes/submissions.py` | 42-46 | ✅ Fixed 2026-06-30 |
-| `container_id` not passed into evaluation pipeline | `app/routes/submissions.py` + `evaluation_service.py` | 13, 159 | ✅ Fixed 2026-06-30 |
-| Score not clamped — could exceed 100 | `app/services/evaluation_service.py` | combined_score line | ✅ Fixed 2026-06-30 |
+| 1.4 | Replace `print()` with `logging` module |
+| 3.6 | Seed 10 curated challenges (`scripts/seed_challenges.py`) |
+| 5.3 | Butterfly chart / side-by-side radar overlay (Tab 5) |
+| 6.2 | Verification nudge before submission ("Did you run it?") |
+| 6.3 | Real polling: `GET /api/submission/<id>` every 3s until `evaluated_at` set |
+| 6.4 | Preview as Student: `GET /student/preview/<challenge_id>` (no Docker) |
+| 6.5 | Guarded mode: Claude system prompt injection in student container |
+| 7.1–7.5 | Unit + integration tests (Epic 7) |
 
 ---
 
-## Epics & Stories (full spec)
+## Next Session — Start Here
 
-Full specification saved at:
-`_bmad-output/planning-artifacts/epics-and-stories.md`
+**Workflow state:** All Epic 4 stories (4.1–4.5) are `done`. No `ready-for-dev` stories exist.
 
----
+**Next action:** Run `/bmad-create-story` to create the next story file.
+- First backlog story in sprint order: **Story 1.4** (`1-4-replace-print-with-proper-logging`)
+- The skill will auto-discover this from `sprint-status.yaml`
 
-## Current Priority — Phase 1: Challenge Creation → Assessment Scoring
-
-Build order: **Epic 1 (bugs) → Epic 3 (challenge catalog) → Epic 2 (8-dim scoring)**
-
-### Epic 1 — Bug Fixes ✅ COMPLETE (2026-06-30)
-- [x] Story 1.1 — Fix efficiency score bug — `submissions.py:evaluate_submission_files()` now queries `submissions` table for `link_id` instead of `submission_files`
-- [x] Story 1.2 — Pass `container_id` into evaluation pipeline — added to `evaluate_submission_files()` signature and thread call; `EvaluationService.evaluate_code()` signature updated
-- [x] Story 1.3 — Score bounds clamp — `min(100.0, max(0.0, ...))` added to combined score calculation in `evaluation_service.py`
-
-### Epic 3 — Market-Aligned Challenge System ✅ COMPLETE (2026-06-30)
-- [x] Story 3.1 — `challenges` table added to `app/models/database.py` `init_db()` — 12 columns, idempotent
-- [x] Story 3.2 — `POST /api/generate-challenge` now accepts `challenge_type`, `skill_area`, `ai_assistance_mode` with enum validation (400 on invalid)
-- [x] Story 3.3 — `EvaluationService.generate_challenge()` fully rewritten — market-aligned prompt, per-type scaffolding instructions, per-skill-area imports, mode-aware instructions, 3000 max tokens
-- [x] Story 3.4 — Generated challenges auto-persisted to `challenges` table as unpublished; `challenge_id` returned in response
-- [x] Story 3.5 — Catalog endpoints: `GET /api/challenges` (filterable), `GET /api/challenges/<id>`, `POST /api/challenges/<id>/publish`, `DELETE /api/challenges/<id>`, `GET /api/challenges/meta/options`
-- [x] DB methods added to `database_service.py`: `create_challenge`, `get_challenge`, `list_challenges`, `publish_challenge`, `unpublish_challenge`
-
-### Epic 2 — 8-Dimension Scoring Engine ✅ COMPLETE (2026-07-01)
-- [x] Story 2.1 — `dimension_scores` + `hire_evaluations` tables added to `app/models/database.py`
-- [x] Story 2.2 — `EvaluationService.extract_container_files()` — full `/workspace` snapshot via Docker tar archive, 50KB cap, graceful `{}` fallback; called in `submit_with_files()` before container cleanup
-- [x] Story 2.3 — `EvaluationService.score_8_dimensions()` — single Claude call with full rubric; all 8 dimension keys guaranteed even on parse failure
-- [x] Story 2.4 — Python-enforced thresholds in `score_8_dimensions()`: strong_hire≥85, hire≥70, select≥55, pass<55; Claude's threshold ignored
-- [x] Story 2.5 — `evaluate_submission_files()` persists per-dimension rows to `dimension_scores` table and verdict to `hire_evaluations` table; DB methods in `database_service.py`
-- [x] Story 2.6 — `GET /api/submission/<id>` now returns `dimensions` (dict of 8) and `hire_evaluation` (composite_score, recommendation, rationale, weights snapshot)
-
-### ✅ Phase 1 Complete — All 3 Epics + Frontend Done (2026-07-01)
-
-**End state:** Teacher generates a market-aligned challenge (bug_fix/feature_extension/refactoring/optimization × skill area) → saves to catalog → creates assignment → Student takes assessment in Docker container with Claude → On submission, full workspace extracted, 8-dimension score computed, hire recommendation (strong_hire/hire/select/pass) returned. All features visible in updated employer dashboard.
-
-**Frontend (`templates/frontend.html`) covers:**
-- Tab 1 — Generate Challenge: type/skill/mode dropdowns, Publish to Catalog button, Save as Assignment button
-- Tab 2 — Challenge Catalog: filter grid, click-to-create-assignment flow
-- Tab 3 — Student Link: assignment list, link generation
-- Tab 4 — Results: hire badge (strong_hire/hire/select/pass color-coded), composite score, 8-spoke SVG radar chart, dimension breakdown table with bar scores + rationales
-- Tab 5 — Compare Candidates: ranked table with per-dimension mini scores, cohort averages bars
-- AI Beta transparency banner (dismissible)
-
----
-
-## Phase 1 Integration Fixes — (2026-07-02)
-
-End-to-end testing revealed and fixed 4 infrastructure bugs. No stories changed; these were gaps between spec and running system.
-
-### Fix 1 — LLM provider: Anthropic → OpenRouter
-- Added `app/services/llm_service.py` — thin 35-line wrapper around `openai` SDK pointed at OpenRouter (`https://openrouter.ai/api/v1`)
-- `LLMService.chat(prompt, max_tokens)` is the single call site; model switchable via `OPENROUTER_MODEL` env var
-- `httpx.Client(verify=False)` bypasses SSL cert issues on restricted networks
-- Replaced all `anthropic` SDK calls in `evaluation_service.py` and `management_service.py`
-- `app/config.py` updated: `OPENROUTER_API_KEY`, `OPENROUTER_MODEL`, `OPENROUTER_BASE_URL` (removed `ANTHROPIC_API_KEY`, `CLAUDE_MODEL`)
-- `requirements.txt`: added `openai>=1.0.0`, `flask-cors>=4.0.0`
-
-### Fix 2 — CORS error on API calls
-- `app/__init__.py`: added `flask-cors` → `CORS(app)` after app creation
-- Frontend: changed all hardcoded `http://localhost:8000/api` URLs to relative `/api` path
-- Root cause: browser blocked cross-origin fetch from `http://127.0.0.1:8000` to `http://localhost:8000`
-
-### Fix 3 — Docker SDK incompatible with Python 3.14
-- `docker==7.0.0` throws `URLSchemeUnknown: http+docker` with `requests>=2.32` on Python 3.14
-- Rewrote `app/services/docker_service.py` entirely using `subprocess` calls to the `docker` CLI
-- No SDK version dependencies; works identically across OS/Python versions
-- `docker/Dockerfile` fixed: added `USER root` before `apt-get`, `USER coder` before `CMD`
-
-### Fix 4 — Student workspace not populated
-- **Problem:** Containers started empty — no `instructions.md`, no `solution.py`
-- **Fix:** Added `DockerService.inject_workspace_files()` called in `links.py` immediately after container creation
-- Waits 2s for container filesystem to settle, then `docker cp` both files in
-- `instructions.md` — Story 6.1 three-panel format: Scenario / Your Task / Evaluation Criteria
-- `solution.py` — AI-generated starter code from the assignment (stub fallback if empty)
-- **Bug in fix:** `→` (U+2192) in print statement after `instructions.md` copy raised `UnicodeEncodeError` on Windows cp1252 console, silently aborting before `solution.py` was copied. Fixed by replacing with ASCII.
-
-### Fix 5 — Student page iframe not loading
-- **Root cause 1:** Port 6000 is Chrome's hard-blocked list (X11). Changed `DOCKER_PORT_RANGE_START` from 6000 to 7100 in `app/config.py`
-- **Root cause 2:** `sandbox` attribute on iframe blocked service workers that code-server relies on. Removed sandbox entirely.
-- **Root cause 3:** iframe loaded immediately at page render before code-server was warm. Now deferred: `startAssessment()` shows a spinner, polls `fetch(vscode_url, {mode:'no-cors'})` every 1.5s until code-server responds (45s timeout), then sets `iframe.src` and transitions to assessment screen.
-- Added warmup screen (`#warmup` div) between landing and assessment screens in `app/routes/student.py`
-
-### Deferred to Phase 2
-- Epic 4 — Human override UI + flag for review
-- Epic 5 — Advanced employer UI (butterfly chart, side-by-side radar overlay)
-- Epic 6 — Student UX (structured panels, verification nudge, real polling, Preview as Student, guarded mode enforcement)
-- Epic 7 — Unit tests
-- Story 1.4 — Replace print() with logging module
-- Story 3.6 — Seed 10 curated challenges
+**Then:** Run `/bmad-dev-story` to implement it.
 
 ---
 
@@ -178,37 +138,77 @@ End-to-end testing revealed and fixed 4 infrastructure bugs. No stories changed;
 
 | Purpose | Path |
 |---|---|
-| Epics & Stories | `_bmad-output/planning-artifacts/epics-and-stories.md` |
+| Epics & Stories (full spec) | `_bmad-output/planning-artifacts/epics-and-stories.md` |
+| Sprint status | `_bmad-output/implementation-artifacts/sprint-status.yaml` |
+| Deferred work log | `_bmad-output/implementation-artifacts/deferred-work.md` |
 | This file | `AGENT.md` |
 | Main config | `app/config.py` |
-| DB schema / init | `app/services/database_service.py` |
+| DB schema / init | `app/models/database.py` |
+| All DB queries | `app/services/database_service.py` |
 | Evaluation + challenge gen | `app/services/evaluation_service.py` |
-| Session log parsing + scoring | `app/services/session_log_service.py` |
-| Submission routes (bug fixes applied) | `app/routes/submissions.py` |
+| LLM wrapper (OpenRouter) | `app/services/llm_service.py` |
+| Submission routes | `app/routes/submissions.py` |
 | Challenge routes | `app/routes/challenges.py` |
+| Analytics routes | `app/routes/analytics.py` |
 | Teacher dashboard | `templates/frontend.html` |
-| Student workspace | `app/routes/student.py` (dynamic HTML) |
+| Student workspace | `app/routes/student.py` |
 
 ---
 
-## Architecture Constraints to Remember
+## Architecture Constraints — Read Before Writing Any Code
 
-- **SQLite only** — no Postgres, no Redis despite requirements.txt listing them
-- **LLM via OpenRouter** — `LLMService` in `app/services/llm_service.py`; model set via `OPENROUTER_MODEL` env var (default `anthropic/claude-haiku-4-5`). Do NOT use `anthropic` SDK directly.
-- **Docker via subprocess CLI** — `docker` Python SDK incompatible with requests≥2.32 on Python 3.14. All Docker ops go through `DockerService` in `docker_service.py` using `subprocess`.
-- **Container port range: 7100–7900** — ports below 7000 (esp. 6000–6007) are Chrome-blocked. Never go below 7100.
-- **Workspace injection is blocking** — `inject_workspace_files()` sleeps 2s then runs `docker cp`. Link generation takes ~3–4s total. This is intentional.
-- **No `→` or non-ASCII in print() on Windows** — Windows console defaults to cp1252; Unicode arrows in print raise `UnicodeEncodeError` silently caught by outer except, aborting subsequent steps. Use ASCII only in print/log strings.
-- **Score thresholds must be Python-enforced** — never rely on Claude's own threshold logic
-- **Visibility floor** — score affects rank only, never hides candidates from comparison view
-- **Docker file extraction** — must return `{}` gracefully when Docker unavailable, never block evaluation
-- **iframe must not use sandbox** — code-server uses service workers; sandbox blocks them. Use `allow=` permissions attribute only.
+- **SQLite only** — no Postgres, no Redis. Raw SQL, no ORM. `CREATE TABLE IF NOT EXISTS` is the migration strategy; `ALTER TABLE` via `try/except sqlite3.OperationalError` (not bare `except Exception`).
+- **LLM via OpenRouter** — `LLMService` in `app/services/llm_service.py`; model via `OPENROUTER_MODEL` env var. Do NOT use `anthropic` SDK directly.
+- **Docker via subprocess CLI** — `docker` Python SDK incompatible with requests≥2.32 on Python 3.14. All Docker ops go through `DockerService` in `docker_service.py`.
+- **Container port range: 7100–7900** — ports below 7000 (esp. 6000–6007) are Chrome-blocked.
+- **No non-ASCII in `print()` on Windows** — cp1252 console; Unicode arrows silently abort execution. ASCII only in print/log strings.
+- **Score thresholds: Python-enforced** — `strong_hire>=85, hire>=70, select>=55, pass<55`. Never rely on Claude's threshold logic.
+- **Visibility floor** — score affects rank only, never hides candidates. Un-evaluated candidates sort last (math.inf sentinel).
+- **`score_overrides` is append-only** — every override inserts a new row. Never UPDATE or DELETE from it.
+- **`hire_evaluations.composite_score` and `.recommendation` are read-only after creation** — override only writes `is_overridden`, `override_recommendation`, `override_rationale`.
+- **`dim_averages` uses `is_evaluated` filter, not dict truthiness** — and skips None scores (no zero-default).
+- **No sandbox on student iframe** — code-server uses service workers; sandbox blocks them.
+- **Module-level `db_service = DatabaseService()`** in each route file — instantiated at import time.
+- **Windows cp1252 print constraint** — see above; applies to ALL print/logging statements.
 
 ---
 
-## How to Update This File
+## DB Schema — Current Tables (10 total after Epic 4)
 
-After completing each story, update:
-1. The bug table (mark ✅ Fixed)
-2. The checkbox list under Current Priority
-3. Add any new architecture decisions or constraints discovered during implementation
+| Table | Key Columns |
+|---|---|
+| `assignments` | `id, title, description, starter_code, evaluation_criteria, challenge_id` |
+| `session_links` | `link_id, assignment_id, container_id, port, expires_at` |
+| `submissions` | `submission_id, link_id, assignment_id, score, feedback, is_flagged, flag_reason, flag_by, flagged_at` |
+| `submission_files` | `file_id, submission_id, filename, content, file_size` |
+| `session_logs` | `log_id, submission_id, timestamp, interaction_type, prompt, response_summary` |
+| `dimension_scores` | `score_id, submission_id, dimension, score, rationale` |
+| `hire_evaluations` | `eval_id, submission_id, composite_score, recommendation, is_overridden, override_recommendation, override_rationale, evaluated_at` |
+| `challenges` | `id, title, domain, description, evaluation_rubric, starter_code, challenge_type, skill_area, difficulty, ai_assistance_mode, is_published, created_at` |
+| `comparison_sessions` | `id, challenge_id, name, submission_ids_json, created_at` |
+| `score_overrides` | `id, submission_id, ai_recommendation, human_recommendation, override_rationale, overridden_at` |
+
+---
+
+## API Endpoints — Full List
+
+| Method | Path | Description |
+|---|---|---|
+| GET | `/api/health` | Health check |
+| POST | `/api/assignments` | Create assignment (accepts optional `challenge_id`) |
+| GET | `/api/assignments/<id>` | Get assignment |
+| POST | `/api/generate-link/<assignment_id>` | Generate student link + spin up container |
+| POST | `/api/generate-challenge` | Generate + persist challenge to catalog |
+| GET | `/api/challenges` | List challenges (filterable) |
+| GET | `/api/challenges/<id>` | Get challenge |
+| POST | `/api/challenges/<id>/publish` | Publish challenge |
+| DELETE | `/api/challenges/<id>` | Soft-delete challenge |
+| GET | `/api/challenges/meta/options` | Valid enum values |
+| GET | `/api/challenges/<id>/candidates` | Ranked candidates for challenge (sort_by/order) |
+| POST | `/api/submit-with-files/<link_id>` | Submit workspace files for evaluation |
+| GET | `/api/submission/<id_or_link>` | Get submission + evaluation results |
+| GET | `/api/submissions` | List all submissions |
+| POST | `/api/submissions/<id>/flag` | Flag submission for manual review |
+| POST | `/api/submissions/<id>/override` | Apply human override to AI recommendation |
+| GET | `/api/analytics/overrides` | Override calibration analytics |
+| GET | `/student/<link_id>` | Student assessment workspace |

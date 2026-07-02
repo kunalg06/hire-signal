@@ -1,10 +1,13 @@
 """System management service for Docker and application lifecycle"""
 
 import docker
+import logging
 import subprocess
 import os
 from typing import Dict, List, Tuple
 from datetime import datetime
+
+logger = logging.getLogger(__name__)
 
 class ManagementService:
     """Manage application lifecycle, Docker services, and system health"""
@@ -18,7 +21,7 @@ class ManagementService:
                 return docker.DockerClient(base_url=docker_host)
             return docker.from_env()
         except Exception as e:
-            print(f"Error: Could not connect to Docker: {e}")
+            logger.error("Could not connect to Docker: %s", e)
             return None
 
     @staticmethod

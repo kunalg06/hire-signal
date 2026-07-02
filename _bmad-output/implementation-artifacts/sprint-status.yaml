@@ -1,0 +1,230 @@
+# generated: 2026-07-02
+# last_updated: 2026-07-02
+# project: coding_platforms
+# project_key: NOKEY
+# tracking_system: file-system
+# story_location: _bmad-output/implementation-artifacts
+
+# STATUS DEFINITIONS:
+# ==================
+# Epic Status:
+#   - backlog: Epic not yet started
+#   - in-progress: Epic actively being worked on
+#   - done: All stories in epic completed
+#
+# Epic Status Transitions:
+#   - backlog → in-progress: Automatically when first story is created (via create-story)
+#   - in-progress → done: Manually when all stories reach 'done' status
+#
+# Story Status:
+#   - backlog: Story only exists in epic file
+#   - ready-for-dev: Story file created in stories folder
+#   - in-progress: Developer actively working on implementation
+#   - review: Ready for code review (via Dev's code-review workflow)
+#   - done: Story completed
+#
+# Retrospective Status:
+#   - optional: Can be completed but not required
+#   - done: Retrospective has been completed
+#
+# WORKFLOW NOTES:
+# ===============
+# - Epic transitions to 'in-progress' automatically when first story is created
+# - Stories can be worked in parallel if team capacity allows
+# - Developer typically creates next story after previous one is 'done' to incorporate learnings
+# - Dev moves story to 'review', then runs code-review (fresh context, different LLM recommended)
+
+generated: "2026-07-02"
+last_updated: "2026-07-02"  # updated: Story 5.3 created, epics 1/3 closed
+project: coding_platforms
+project_key: NOKEY
+tracking_system: file-system
+story_location: _bmad-output/implementation-artifacts
+
+development_status:
+
+  # ─────────────────────────────────────────────────────────────────────────
+  # Epic 1 — Bug Fixes & Foundation Hardening
+  # All stories done as of 2026-07-02.
+  # ─────────────────────────────────────────────────────────────────────────
+  epic-1: done
+
+  1-1-fix-efficiency-score-bug: done
+  # Fixed 2026-06-30: submissions.py now queries submissions table for link_id,
+  # then passes to db_service.get_link_created_time()
+
+  1-2-pass-container_id-into-evaluation-pipeline: done
+  # Fixed 2026-06-30: container_id flows from submit_with_files() into
+  # evaluate_submission_files() and EvaluationService.evaluate_code()
+
+  1-3-score-bounds-enforcement: done
+  # Fixed 2026-06-30: min(100.0, max(0.0, combined_score)) applied in
+  # evaluation_service.py
+
+  1-4-replace-print-with-proper-logging: done
+  # Story file created 2026-07-02; 33 print() calls across 8 files, mechanical substitution
+
+  epic-1-retrospective: optional
+
+  # ─────────────────────────────────────────────────────────────────────────
+  # Epic 2 — 8-Dimension AI Scoring Engine
+  # All 6 stories complete as of 2026-07-01.
+  # ─────────────────────────────────────────────────────────────────────────
+  epic-2: done
+
+  2-1-schema-dimension-scoring-tables: done
+  # dimension_scores + hire_evaluations tables in app/models/database.py
+
+  2-2-full-workspace-snapshot-at-submission-time: done
+  # EvaluationService.extract_container_files() — Docker tar archive,
+  # 50KB cap, text-only filter, {} fallback
+
+  2-3-8-dimension-claude-scoring-prompt: done
+  # EvaluationService.score_8_dimensions() — single Claude call,
+  # all 8 keys guaranteed even on parse failure
+
+  2-4-hire-recommendation-logic-python-enforced: done
+  # Python thresholds: strong_hire>=85, hire>=70, select>=55, pass<55
+  # Claude's threshold recommendation logged but not used
+
+  2-5-persist-dimension-scores-to-db: done
+  # Per-dimension rows to dimension_scores; verdict to hire_evaluations
+  # with dimension_weights_json snapshot for auditability
+
+  2-6-updated-submission-api-response: done
+  # GET /api/submission/<id> returns dimensions dict (8 keys) and
+  # hire_evaluation (composite_score, recommendation, rationale, weights)
+
+  epic-2-retrospective: optional
+
+  # ─────────────────────────────────────────────────────────────────────────
+  # Epic 3 — Market-Aligned Challenge System
+  # All 6 stories complete as of 2026-07-02.
+  # ─────────────────────────────────────────────────────────────────────────
+  epic-3: done
+
+  3-1-schema-challenges-catalog-table: done
+  # challenges table added to app/models/database.py — 12 columns, idempotent
+
+  3-2-extended-challenge-generation-api: done
+  # POST /api/generate-challenge accepts challenge_type, skill_area,
+  # ai_assistance_mode with enum validation (400 on invalid)
+
+  3-3-richer-challenge-generation-prompt: done
+  # generate_challenge() rewritten — market-aligned prompt (Stripe/Anthropic
+  # style), per-type scaffolding, per-skill-area imports, mode-aware instructions
+
+  3-4-auto-persist-generated-challenge-to-catalog: done
+  # Generated challenges saved as is_published=0; challenge_id in response
+
+  3-5-challenge-catalog-endpoints: done
+  # GET /api/challenges, GET /api/challenges/<id>,
+  # POST /api/challenges/<id>/publish, DELETE /api/challenges/<id>,
+  # GET /api/challenges/meta/options
+
+  3-6-seed-10-curated-challenges: done
+  # Implemented 2026-07-02; scripts/seed_challenges.py seeding 10 challenges across all types/areas
+  # Review patches 2026-07-02: removed init_db() violation, dead import, added per-challenge error handling
+
+  epic-3-retrospective: optional
+
+  # ─────────────────────────────────────────────────────────────────────────
+  # Epic 4 — Candidate Comparison & Hiring Workflow
+  # Not started. Deferred to Phase 2.
+  # ─────────────────────────────────────────────────────────────────────────
+  epic-4: in-progress
+
+  4-1-schema-comparison-sessions: done
+  # comparison_sessions + score_overrides tables in database.py; 3 comparison session service methods
+
+  4-2-candidate-comparison-endpoint: done
+  # GET /api/challenges/<challenge_id>/candidates — sort_by/order, dim_averages, rank; dim_averages filter fixed (review patch)
+
+  4-3-human-override-flag-for-manual-review: done
+  # POST /flag + /override endpoints; link_id fallback query flag fields fixed (review patch)
+
+  4-4-override-logging-as-calibration-dataset: done
+  # score_overrides table + GET /api/analytics/overrides + frontend sync fixes; return-value guard added (review patch)
+
+  4-5-visibility-floor-enforcement: done
+  # sort_key math.inf sentinel + is_evaluated field; migration exception narrowed (review patch)
+
+  epic-4-retrospective: optional
+
+  # ─────────────────────────────────────────────────────────────────────────
+  # Epic 5 — Employer Dashboard UI Overhaul
+  # Stories 5.1, 5.2, 5.4, 5.5 complete (done in Phase 1 frontend pass).
+  # Story 5.3 (butterfly chart / radar overlay) deferred to Phase 2.
+  # ─────────────────────────────────────────────────────────────────────────
+  epic-5: in-progress
+
+  5-1-challenge-results-board-candidate-grid: done
+  # Tab 4 in frontend.html — assignment dropdown, candidate grid,
+  # filter buttons (All/Strong Hire/Hire/Select/Pass), sort dropdown,
+  # detail panel with radar + dimension breakdown
+
+  5-2-8-dimension-radar-chart-svg-component: done
+  # 8-spoke SVG radar — abbreviated labels (PD/FP/CP/IQ/DA/AD/CC/TE),
+  # mini (80px) in grid, full (300px) in detail panel
+
+  5-3-side-by-side-candidate-comparison-view: ready-for-dev
+  # Story created 2026-07-02; frontend-only (templates/frontend.html), no backend changes
+  # Overlaid radar + butterfly chart + expandable rationale + cross-assignment warning modal
+
+  5-4-hire-recommendation-surface: done
+  # Hire badge (green/blue/amber/gray), AI narrative paragraph,
+  # composite score displayed — flag/override actions depend on Epic 4
+
+  5-5-ai-beta-transparency-banner: done
+  # "AI scoring is experimental" banner in frontend.html,
+  # dismissible per session via localStorage
+
+  epic-5-retrospective: optional
+
+  # ─────────────────────────────────────────────────────────────────────────
+  # Epic 6 — Student Experience & Preview as Student
+  # Story 6.1 complete (workspace injection uses three-panel format).
+  # Stories 6.2–6.5 deferred to Phase 2.
+  # ─────────────────────────────────────────────────────────────────────────
+  epic-6: in-progress
+
+  6-1-structured-challenge-display-in-student-view: done
+  # instructions.md injected with Scenario / Your Task / Evaluation Criteria
+  # three-panel format via DockerService.inject_workspace_files()
+
+  6-2-verification-nudge-before-submission: backlog
+  # "Did you run the code?" modal before submit not yet built
+
+  6-3-real-polling-instead-of-fixed-2s-wait: backlog
+  # GET /api/submission/<id> every 3s until evaluated_at populated not yet built
+
+  6-4-preview-as-student: backlog
+  # GET /student/preview/<challenge_id> — no-Docker preview not yet built
+
+  6-5-guarded-mode-claude-restrictions: backlog
+  # System prompt injection for guarded ai_assistance_mode not yet built
+
+  epic-6-retrospective: optional
+
+  # ─────────────────────────────────────────────────────────────────────────
+  # Epic 7 — Test Coverage
+  # Not started. Runs alongside Epics 2–6 per spec.
+  # ─────────────────────────────────────────────────────────────────────────
+  epic-7: backlog
+
+  7-1-unit-test-score_8_dimensions: backlog
+  # Mock Claude, assert all 8 keys present, assert Python-weighted average used
+
+  7-2-unit-test-extract_container_files: backlog
+  # Docker unavailable → {}, text-only filter, 50KB cap
+
+  7-3-unit-test-hire-recommendation-thresholds: backlog
+  # All 4 boundary conditions: >=85, >=70, >=55, <55
+
+  7-4-integration-test-get-api-challenges-id-candidates: backlog
+  # Empty list, sorted results, dimension_averages always present
+
+  7-5-unit-test-generate_challenge-with-new-params: backlog
+  # Invalid enum → 400, valid → persisted to challenges table
+
+  epic-7-retrospective: optional

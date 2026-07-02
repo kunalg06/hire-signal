@@ -143,4 +143,52 @@ class Database:
                 )
             ''')
 
+            # Comparison sessions — group candidate submissions for side-by-side review
+            cursor.execute('''
+                CREATE TABLE IF NOT EXISTS comparison_sessions (
+                    id TEXT PRIMARY KEY,
+                    challenge_id TEXT NOT NULL,
+                    name TEXT,
+                    submission_ids_json TEXT NOT NULL,
+                    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                    FOREIGN KEY(challenge_id) REFERENCES challenges(id)
+                )
+            ''')
+
+            # Override audit log — immutable event log for AI calibration analytics
+            cursor.execute('''
+                CREATE TABLE IF NOT EXISTS score_overrides (
+                    id TEXT PRIMARY KEY,
+                    submission_id TEXT NOT NULL,
+                    ai_recommendation TEXT NOT NULL,
+                    human_recommendation TEXT NOT NULL,
+                    override_rationale TEXT NOT NULL,
+                    overridden_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                    FOREIGN KEY(submission_id) REFERENCES submissions(submission_id)
+                )
+            ''')
+
             conn.commit()
+
+        # Schema migration: add challenge_id to assignments if not present
+        # (SQLite has no ALTER TABLE ... ADD COLUMN IF NOT EXISTS)
+        try:
+            with self.get_connection() as conn:
+                conn.execute('ALTER TABLE assignments ADD COLUMN challenge_id TEXT')
+                conn.commit()
+        except sqlite3.OperationalError:
+            pass  # Column already exists — expected on all runs after the first
+
+        # Schema migration: add flag columns to submissions (Story 4.3)
+        for _col_sql in [
+            'ALTER TABLE submissions ADD COLUMN is_flagged INTEGER DEFAULT 0',
+            'ALTER TABLE submissions ADD COLUMN flag_reason TEXT',
+            'ALTER TABLE submissions ADD COLUMN flag_by TEXT',
+            'ALTER TABLE submissions ADD COLUMN flagged_at TIMESTAMP',
+        ]:
+            try:
+                with self.get_connection() as conn:
+                    conn.execute(_col_sql)
+                    conn.commit()
+            except sqlite3.OperationalError:
+                pass  # Column already exists

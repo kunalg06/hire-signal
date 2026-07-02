@@ -1,10 +1,13 @@
 import json
+import logging
 import os
 import io
 import tarfile
 from app.config import Config
 from app.services.llm_service import LLMService
 from app.services.session_log_service import SessionLogService
+
+logger = logging.getLogger(__name__)
 
 class EvaluationService:
     """Code evaluation service — LLM calls routed through LLMService."""
@@ -73,7 +76,7 @@ class EvaluationService:
             return files
 
         except Exception as e:
-            print(f"Warning: workspace extraction failed for {container_id}: {e}")
+            logger.warning("workspace extraction failed for %s: %s", container_id, e)
             return {}
 
     @staticmethod
@@ -200,7 +203,7 @@ Respond ONLY with valid JSON — no markdown fences, no prose:
             result = json.loads(response_text)
 
         except Exception as e:
-            print(f"8-dimension scoring error: {e}")
+            logger.error("8-dimension scoring error: %s", e)
             return _default_result(f"Scoring error: {str(e)[:120]}")
 
         # ── Validate all 8 keys present ──────────────────────────────────

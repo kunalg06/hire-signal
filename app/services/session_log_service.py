@@ -1,7 +1,10 @@
 import json
+import logging
 import re
 from datetime import datetime, timezone
 from typing import List, Tuple
+
+logger = logging.getLogger(__name__)
 
 class SessionLogService:
     """Service for parsing and analyzing Claude session logs"""
@@ -110,7 +113,7 @@ class SessionLogService:
                 else:
                     efficiency_score = 5
             except Exception as e:
-                print(f"Error calculating efficiency score: {e}")
+                logger.error("Failed to calculate efficiency score: %s", e)
                 efficiency_score = 15
 
         # Clamp to ensure scores stay in 0-30 range

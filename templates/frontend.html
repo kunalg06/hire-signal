@@ -548,6 +548,39 @@
                     </div>
                     <p id="resNarrative" style="color:#555; line-height:1.7; font-size:0.92em; margin-top:10px;"></p>
                     <div style="margin-top:14px; font-size:0.8em; color:#aaa;" id="resAssignment"></div>
+                    <div style="margin-top:18px; display:flex; gap:10px; flex-wrap:wrap;">
+                        <button class="btn btn-sm btn-outline" onclick="flagCandidate()" id="flagBtn">🚩 Flag for Review</button>
+                        <button class="btn btn-sm btn-outline" onclick="overrideCandidate()" id="overrideBtn">✏️ Override Decision</button>
+                    </div>
+                    <div id="flagForm" style="display:none; margin-top:14px; background:#fff8e1; border-left:3px solid #ffc107; padding:12px; border-radius:6px;">
+                        <div class="form-group" style="margin-bottom:8px;">
+                            <label style="font-size:0.85em;">Reason for flagging (required)</label>
+                            <input type="text" id="flagReason" placeholder="e.g. Unusual score for known candidate" style="font-size:0.88em;">
+                        </div>
+                        <div style="display:flex; gap:8px;">
+                            <button class="btn btn-sm" onclick="submitFlag()">Submit Flag</button>
+                            <button class="btn-outline btn-sm" onclick="document.getElementById('flagForm').style.display='none'" style="padding:6px 14px; font-size:0.85em;">Cancel</button>
+                        </div>
+                    </div>
+                    <div id="overrideForm" style="display:none; margin-top:14px; background:#e8f5e9; border-left:3px solid #4caf50; padding:12px; border-radius:6px;">
+                        <div class="form-group" style="margin-bottom:8px;">
+                            <label style="font-size:0.85em;">Override recommendation</label>
+                            <select id="overrideRec" style="font-size:0.88em;">
+                                <option value="strong_hire">Strong Hire</option>
+                                <option value="hire">Hire</option>
+                                <option value="select">Select</option>
+                                <option value="pass">Pass</option>
+                            </select>
+                        </div>
+                        <div class="form-group" style="margin-bottom:8px;">
+                            <label style="font-size:0.85em;">Rationale (required)</label>
+                            <textarea id="overrideRationale" rows="2" placeholder="Why does your judgment differ from the AI?" style="font-size:0.88em;"></textarea>
+                        </div>
+                        <div style="display:flex; gap:8px;">
+                            <button class="btn btn-sm" onclick="submitOverride()">Apply Override</button>
+                            <button class="btn-outline btn-sm" onclick="document.getElementById('overrideForm').style.display='none'" style="padding:6px 14px; font-size:0.85em;">Cancel</button>
+                        </div>
+                    </div>
                 </div>
                 <div class="card" style="display:flex; flex-direction:column; align-items:center; justify-content:center;">
                     <h2 style="align-self:flex-start;">8-Dimension Profile</h2>
@@ -749,10 +782,11 @@ async function saveAsAssignment() {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify({
-                title:              generatedChallenge.title,
-                description:        generatedChallenge.description,
+                title:               generatedChallenge.title,
+                description:         generatedChallenge.description,
                 evaluation_criteria: generatedChallenge.evaluation_criteria,
-                starter_code:       generatedChallenge.starter_code,
+                starter_code:        generatedChallenge.starter_code,
+                challenge_id:        currentChallengeId || null,
             })
         });
         const data = await res.json();
@@ -850,6 +884,7 @@ async function useCatalogChallenge(id, title) {
                 description:         c.description,
                 evaluation_criteria: c.evaluation_rubric || '',
                 starter_code:        c.starter_code || '',
+                challenge_id:        id,
             })
         });
         const aData = await aRes.json();
@@ -943,8 +978,9 @@ const DIM_SHORT = {
 const DIM_ORDER = Object.keys(DIM_LABELS);
 
 // State for the candidate grid
-let _allCandidates = [];
-let _activeFilter  = 'all';
+let _allCandidates   = [];
+let _activeFilter    = 'all';
+let _currentSubId    = null;   // tracks submission ID visible in detail panel
 
 async function refreshAssignList() {
     try {
@@ -1077,6 +1113,9 @@ async function viewCandidate(submissionId) {
             </tr>`;
         }).join('');
 
+        _currentSubId = submissionId;
+        document.getElementById('flagForm').style.display    = 'none';
+        document.getElementById('overrideForm').style.display = 'none';
         document.getElementById('resultsPanel').style.display = 'block';
         document.getElementById('resultsPanel').scrollIntoView({ behavior: 'smooth', block: 'start' });
     } catch(err) {
@@ -1088,6 +1127,59 @@ async function viewCandidate(submissionId) {
 function viewInResults(submissionId) {
     switchTab('results', document.querySelector('.tab-btn[onclick*="results"]'));
     viewCandidate(submissionId);
+}
+
+function flagCandidate() {
+    document.getElementById('overrideForm').style.display = 'none';
+    document.getElementById('flagForm').style.display = 'block';
+}
+
+function overrideCandidate() {
+    document.getElementById('flagForm').style.display = 'none';
+    document.getElementById('overrideForm').style.display = 'block';
+}
+
+async function submitFlag() {
+    if (!_currentSubId) return;
+    const reason = document.getElementById('flagReason').value.trim();
+    if (!reason) { showAlert('resAlert', 'Flag reason is required', 'error'); return; }
+    try {
+        const res = await fetch(`${API}/submissions/${_currentSubId}/flag`, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ reason }),
+        });
+        const data = await res.json();
+        if (!res.ok) throw new Error(data.error || data.detail);
+        document.getElementById('flagForm').style.display = 'none';
+        document.getElementById('flagReason').value = '';
+        showAlert('resAlert', 'Submission flagged for manual review.', 'success');
+    } catch(err) {
+        showAlert('resAlert', 'Error: ' + err.message, 'error');
+    }
+}
+
+async function submitOverride() {
+    if (!_currentSubId) return;
+    const override_recommendation = document.getElementById('overrideRec').value;
+    const override_rationale = document.getElementById('overrideRationale').value.trim();
+    if (!override_rationale) { showAlert('resAlert', 'Override rationale is required', 'error'); return; }
+    try {
+        const res = await fetch(`${API}/submissions/${_currentSubId}/override`, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ override_recommendation, override_rationale }),
+        });
+        const data = await res.json();
+        if (!res.ok) throw new Error(data.error || data.detail);
+        document.getElementById('overrideForm').style.display = 'none';
+        document.getElementById('overrideRationale').value = '';
+        showAlert('resAlert',
+            `Override applied: AI said "${data.original_recommendation}", you set "${data.override_recommendation}".`,
+            'success');
+    } catch(err) {
+        showAlert('resAlert', 'Error: ' + err.message, 'error');
+    }
 }
 
 // ── Radar chart (vanilla SVG) ──────────────────────────────────────────────
@@ -1211,14 +1303,6 @@ async function loadCandidates() {
     }
 }
 
-function viewInResults(submissionId) {
-    document.getElementById('submissionId').value = submissionId;
-    document.querySelectorAll('.tab-btn').forEach(b => b.classList.remove('active'));
-    document.querySelectorAll('.tab-panel').forEach(p => p.classList.remove('active'));
-    document.getElementById('tab-results').classList.add('active');
-    document.querySelectorAll('.tab-btn')[3].classList.add('active');
-    loadResults();
-}
 
 // ── Utilities ─────────────────────────────────────────────────────────────
 function escHtml(str) {

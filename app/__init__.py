@@ -17,6 +17,7 @@ from app.routes.submissions import submissions_bp
 from app.routes.student import student_bp
 from app.routes.management import management_bp
 from app.routes.challenges import challenges_bp
+from app.routes.analytics import analytics_bp
 
 
 def create_app(config_name=None):
@@ -49,6 +50,7 @@ def create_app(config_name=None):
     app.register_blueprint(student_bp)
     app.register_blueprint(management_bp)
     app.register_blueprint(challenges_bp)
+    app.register_blueprint(analytics_bp)
 
     # Frontend route - Serve teacher dashboard from templates/frontend.html
     @app.route('/')

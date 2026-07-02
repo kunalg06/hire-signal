@@ -10,14 +10,14 @@ class DatabaseService:
     def __init__(self, db_path=None):
         self.db = Database(db_path)
 
-    def create_assignment(self, assignment_id, title, description, starter_code, evaluation_criteria):
-        """Create a new assignment"""
+    def create_assignment(self, assignment_id, title, description, starter_code, evaluation_criteria, challenge_id=None):
+        """Create a new assignment, optionally linked to a catalog challenge"""
         with self.db.get_connection() as conn:
             cursor = conn.cursor()
             cursor.execute('''
-                INSERT INTO assignments (id, title, description, starter_code, evaluation_criteria)
-                VALUES (?, ?, ?, ?, ?)
-            ''', (assignment_id, title, description, starter_code, evaluation_criteria))
+                INSERT INTO assignments (id, title, description, starter_code, evaluation_criteria, challenge_id)
+                VALUES (?, ?, ?, ?, ?, ?)
+            ''', (assignment_id, title, description, starter_code, evaluation_criteria, challenge_id))
             conn.commit()
 
     def get_assignment(self, assignment_id):
@@ -98,16 +98,44 @@ class DatabaseService:
             conn.commit()
 
     def get_submission(self, submission_id):
-        """Get submission and evaluation results"""
+        """Get submission and evaluation results including flag status"""
         with self.db.get_connection() as conn:
             cursor = conn.cursor()
             cursor.execute('''
-                SELECT s.submission_id, s.link_id, s.assignment_id, s.code, s.submitted_at, s.evaluation_result, s.score, s.feedback, a.title, a.evaluation_criteria
+                SELECT s.submission_id, s.link_id, s.assignment_id, s.code, s.submitted_at,
+                       s.evaluation_result, s.score, s.feedback, a.title, a.evaluation_criteria,
+                       s.is_flagged, s.flag_reason, s.flag_by, s.flagged_at
                 FROM submissions s
                 JOIN assignments a ON s.assignment_id = a.id
                 WHERE s.submission_id = ?
             ''', (submission_id,))
             return cursor.fetchone()
+
+    def flag_submission(self, submission_id, reason, flagged_by=None):
+        """Flag a submission for manual review"""
+        with self.db.get_connection() as conn:
+            cursor = conn.cursor()
+            cursor.execute('''
+                UPDATE submissions
+                SET is_flagged = 1, flag_reason = ?, flag_by = ?, flagged_at = ?
+                WHERE submission_id = ?
+            ''', (reason, flagged_by, datetime.now().isoformat(), submission_id))
+            conn.commit()
+            return cursor.rowcount > 0
+
+    def override_hire_evaluation(self, submission_id, override_recommendation, override_rationale):
+        """Apply human override — original AI composite_score and recommendation are never changed"""
+        with self.db.get_connection() as conn:
+            cursor = conn.cursor()
+            cursor.execute('''
+                UPDATE hire_evaluations
+                SET is_overridden = 1,
+                    override_recommendation = ?,
+                    override_rationale = ?
+                WHERE submission_id = ?
+            ''', (override_recommendation, override_rationale, submission_id))
+            conn.commit()
+            return cursor.rowcount > 0
 
     def list_submissions(self, recommendation_filter=None, assignment_id_filter=None):
         """List all submissions with hire evaluation, newest first. Optional filters."""
@@ -258,6 +286,28 @@ class DatabaseService:
             ''', (assignment_id,))
             return cursor.fetchall()
 
+    def get_candidates_for_challenge(self, challenge_id):
+        """Return all submissions across all assignments linked to a challenge, ranked by composite score"""
+        with self.db.get_connection() as conn:
+            cursor = conn.cursor()
+            cursor.execute('''
+                SELECT
+                    s.submission_id,
+                    s.link_id,
+                    s.submitted_at,
+                    s.score,
+                    he.composite_score,
+                    he.recommendation,
+                    he.narrative,
+                    he.evaluated_at
+                FROM submissions s
+                JOIN assignments a ON s.assignment_id = a.id
+                LEFT JOIN hire_evaluations he ON s.submission_id = he.submission_id
+                WHERE a.challenge_id = ?
+                ORDER BY COALESCE(he.composite_score, s.score, 0) DESC
+            ''', (challenge_id,))
+            return cursor.fetchall()
+
     # ── Challenge catalog methods ──────────────────────────────────────────
 
     def create_challenge(self, challenge_id, title, domain, description,
@@ -326,3 +376,109 @@ class DatabaseService:
             )
             conn.commit()
             return cursor.rowcount > 0
+
+    # ── Comparison session methods ─────────────────────────────────────────
+
+    def create_comparison_session(self, session_id, challenge_id, name, submission_ids):
+        """Create a named comparison session grouping submissions for a challenge"""
+        with self.db.get_connection() as conn:
+            cursor = conn.cursor()
+            cursor.execute('''
+                INSERT INTO comparison_sessions (id, challenge_id, name, submission_ids_json)
+                VALUES (?, ?, ?, ?)
+            ''', (session_id, challenge_id, name, json.dumps(submission_ids)))
+            conn.commit()
+
+    def get_comparison_session(self, session_id):
+        """Fetch a single comparison session by ID"""
+        with self.db.get_connection() as conn:
+            cursor = conn.cursor()
+            cursor.execute('SELECT * FROM comparison_sessions WHERE id = ?', (session_id,))
+            return cursor.fetchone()
+
+    def list_comparison_sessions(self, challenge_id=None):
+        """List comparison sessions, optionally filtered by challenge, newest first"""
+        with self.db.get_connection() as conn:
+            cursor = conn.cursor()
+            if challenge_id:
+                cursor.execute(
+                    'SELECT * FROM comparison_sessions WHERE challenge_id = ? ORDER BY created_at DESC',
+                    (challenge_id,)
+                )
+            else:
+                cursor.execute('SELECT * FROM comparison_sessions ORDER BY created_at DESC')
+            return cursor.fetchall()
+
+    # ── Override calibration audit methods ────────────────────────────────────
+
+    def log_score_override(self, override_id, submission_id, ai_recommendation,
+                           human_recommendation, override_rationale):
+        """Append one override event to the immutable calibration audit log"""
+        with self.db.get_connection() as conn:
+            cursor = conn.cursor()
+            cursor.execute('''
+                INSERT INTO score_overrides
+                    (id, submission_id, ai_recommendation, human_recommendation, override_rationale)
+                VALUES (?, ?, ?, ?, ?)
+            ''', (override_id, submission_id, ai_recommendation,
+                  human_recommendation, override_rationale))
+            conn.commit()
+
+    def get_override_analytics(self):
+        """Return aggregated override stats for the analytics endpoint"""
+        with self.db.get_connection() as conn:
+            cursor = conn.cursor()
+
+            cursor.execute('SELECT COUNT(*) FROM score_overrides')
+            total = cursor.fetchone()[0]
+
+            cursor.execute('''
+                SELECT ai_recommendation, human_recommendation, COUNT(*) AS cnt
+                FROM score_overrides
+                GROUP BY ai_recommendation, human_recommendation
+                ORDER BY cnt DESC
+            ''')
+            direction_rows = cursor.fetchall()
+
+            cursor.execute('''
+                SELECT id, submission_id, ai_recommendation, human_recommendation,
+                       override_rationale, overridden_at
+                FROM score_overrides
+                ORDER BY overridden_at DESC
+                LIMIT 20
+            ''')
+            recent_rows = cursor.fetchall()
+
+        overrides_by_direction = {
+            f"{r[0]} -> {r[1]}": r[2]
+            for r in direction_rows
+        }
+
+        recent_overrides = [
+            {
+                "override_id":           r[0],
+                "submission_id":         r[1],
+                "ai_recommendation":     r[2],
+                "human_recommendation":  r[3],
+                "override_rationale":    r[4],
+                "overridden_at":         r[5],
+            }
+            for r in recent_rows
+        ]
+
+        pattern_summary = []
+        if total >= 10:
+            for direction, count in overrides_by_direction.items():
+                if count / total >= 0.20:
+                    pattern_summary.append({
+                        "direction": direction,
+                        "count":     count,
+                        "pct":       round(count / total * 100, 1),
+                    })
+
+        return {
+            "total_overrides":        total,
+            "overrides_by_direction": overrides_by_direction,
+            "recent_overrides":       recent_overrides,
+            "pattern_summary":        pattern_summary,
+        }

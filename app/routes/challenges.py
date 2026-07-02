@@ -1,5 +1,7 @@
 """Routes for AI-based challenge generation and catalog management"""
 
+import logging
+import math
 from flask import Blueprint, request, jsonify
 from app.services.evaluation_service import EvaluationService
 from app.services.database_service import DatabaseService
@@ -7,11 +9,19 @@ from app.utils.helpers import IDGenerator
 
 challenges_bp = Blueprint('challenges', __name__, url_prefix='/api')
 db_service = DatabaseService()
+logger = logging.getLogger(__name__)
 
 VALID_CHALLENGE_TYPES = {'bug_fix', 'feature_extension', 'refactoring', 'optimization'}
 VALID_SKILL_AREAS = {'api_integration', 'rate_limiting', 'data_pipeline', 'llm_usage', 'server_monitoring', 'game_logic'}
 VALID_DIFFICULTIES = {'easy', 'medium', 'hard'}
 VALID_MODES = {'guarded', 'unguarded'}
+
+DIM_KEYS = [
+    'problem_decomposition', 'first_principles_thinking', 'creative_problem_solving',
+    'iteration_quality', 'debugging_with_ai', 'architecture_decisions',
+    'communication_clarity', 'token_efficiency',
+]
+VALID_SORT_FIELDS = {'composite_score'} | set(DIM_KEYS)
 
 
 def _challenge_row_to_dict(row):
@@ -89,7 +99,7 @@ def generate_challenge():
         )
     except Exception as e:
         # Generation succeeded — return it even if persist fails
-        print(f"Warning: could not persist challenge to catalog: {e}")
+        logger.warning("Could not persist challenge to catalog: %s", e)
         challenge_id = None
 
     return jsonify({
@@ -181,6 +191,81 @@ def delete_challenge(challenge_id):
         'challenge_id': challenge_id,
         'is_published': False,
         'message': 'Challenge removed from catalog',
+    }), 200
+
+
+# ── Candidate comparison ──────────────────────────────────────────────────────
+
+@challenges_bp.route('/challenges/<challenge_id>/candidates', methods=['GET'])
+def get_challenge_candidates(challenge_id):
+    """Return all candidates for a challenge, ranked and filterable by sort_by/order"""
+    if not db_service.get_challenge(challenge_id):
+        return jsonify({'error': 'Challenge not found'}), 404
+
+    sort_by = request.args.get('sort_by', 'composite_score')
+    order   = request.args.get('order', 'desc')
+
+    if sort_by not in VALID_SORT_FIELDS:
+        return jsonify({'error': f'sort_by must be one of: {sorted(VALID_SORT_FIELDS)}'}), 400
+    if order not in ('asc', 'desc'):
+        return jsonify({'error': 'order must be asc or desc'}), 400
+
+    rows = db_service.get_candidates_for_challenge(challenge_id)
+    candidates = []
+    for row in rows:
+        submission_id = row[0]
+        dim_rows = db_service.get_dimension_scores(submission_id)
+        dimensions = {r[0]: {'score': r[1], 'rationale': r[2]} for r in dim_rows}
+        candidates.append({
+            'submission_id':            row[0],
+            'link_id':                  row[1],
+            'submitted_at':             row[2],
+            'score':                    row[3],
+            'composite_score':          row[4],
+            'hire_recommendation':      row[5],
+            'recommendation_rationale': row[6],
+            'evaluated_at':             row[7],
+            'is_evaluated':             row[7] is not None,
+            'dimensions':               dimensions,
+        })
+
+    # Sort by requested field (Python-side — dimension scores are in a separate table)
+    # Un-evaluated candidates (None values) always sort to the end regardless of direction.
+    reverse = (order == 'desc')
+    def sort_key(c):
+        if sort_by == 'composite_score':
+            val = c.get('composite_score')
+        else:
+            val = c.get('dimensions', {}).get(sort_by, {}).get('score')
+        if val is None:
+            return -math.inf if reverse else math.inf
+        return float(val)
+    candidates.sort(key=sort_key, reverse=reverse)
+
+    # Assign rank after sort
+    for i, c in enumerate(candidates, 1):
+        c['rank'] = i
+
+    # Dimension averages across evaluated candidates only.
+    # Use is_evaluated (not dict truthiness) so partially-evaluated candidates aren't excluded.
+    # Skip None/missing per-dimension scores rather than defaulting to 0.
+    evaluated = [c for c in candidates if c['is_evaluated']]
+    dim_averages = {}
+    if evaluated:
+        for dim in DIM_KEYS:
+            scores = [
+                c['dimensions'][dim]['score']
+                for c in evaluated
+                if dim in c['dimensions'] and c['dimensions'][dim].get('score') is not None
+            ]
+            if scores:
+                dim_averages[dim] = round(sum(scores) / len(scores), 1)
+
+    return jsonify({
+        'challenge_id':       challenge_id,
+        'candidates':         candidates,
+        'total':              len(candidates),
+        'dimension_averages': dim_averages,
     }), 200
 
 
