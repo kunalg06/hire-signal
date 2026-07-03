@@ -3,27 +3,27 @@
 ## Current Status
 
 The system **works without Docker** with graceful degradation:
-- ✓ Teacher dashboard fully functional
+- ✓ Employer dashboard fully functional
 - ✓ Assignment creation and management working
-- ✓ Student links generate successfully
-- ✓ Student portal page loads
+- ✓ Candidate links generate successfully
+- ✓ Candidate portal page loads
 - ⚠ Code-server (embedded IDE) unavailable without Docker
 
 ## Understanding Docker in This System
 
 ### What Docker Does
-- Runs isolated Python environments for each student
+- Runs isolated environments for each candidate
 - Provides browser-based VS Code (code-server) on unique ports
-- Collects files from student workspace for evaluation
-- Provides security isolation between students
+- Collects files from the candidate's workspace for evaluation
+- Provides security isolation between candidates
 
 ### What Happens Without Docker
 
 **When Docker is not running:**
 1. Link generation completes instantly (no port assignment)
-2. Student portal shows assignment details
+2. Candidate portal shows assignment details
 3. Code-server is not available
-4. Students cannot submit files directly
+4. Candidates cannot submit files directly
 
 **The system detects this automatically** and shows users:
 ```
@@ -52,7 +52,7 @@ Should show Docker version and empty container list.
 **In the Platform:**
 1. Refresh the page
 2. Generate a new link - port number will now appear
-3. Students can access code-server
+3. Candidates can access code-server
 
 ### Option 2: Docker via WSL2 (Windows)
 
@@ -83,25 +83,14 @@ sudo usermod -aG docker $USER
 
 ## Testing Docker Connection
 
-### From Python
-```bash
-cd E:\project2025\coding_platforms
-python -c "
-import docker
-try:
-    client = docker.from_env()
-    print('Docker connected successfully')
-    print(f'Docker version: {client.version()}')
-except Exception as e:
-    print(f'Docker connection failed: {e}')
-"
-```
+The app checks Docker availability via the `docker` CLI through a subprocess call (`docker info`), **not** the `docker` Python SDK — that SDK is listed in `requirements.txt` but isn't used at runtime because its `requests` dependency conflicts with `requests>=2.32` under Python 3.14 in this environment. Test the same way the app does:
 
-### From Command Line
 ```bash
 docker info
 docker ps
 ```
+
+If both succeed, `DockerService.get_client()` will detect Docker as available.
 
 ## Common Docker Errors & Solutions
 
@@ -153,21 +142,21 @@ docker ps
 
 ### Verify Dockerfile
 
-Check that Dockerfile exists:
+Check that the candidate-container Dockerfile exists:
 ```bash
-ls -la docker/Dockerfile
+ls -la docker/Dockerfile.codeserver
 ```
 
-Should show code-server configuration.
+Should show code-server + Claude Code CLI configuration.
 
 ### Build Container Image
 
 ```bash
 cd docker
-docker build -f Dockerfile -t coding-platform-student .
+docker build -f Dockerfile.codeserver -t coding-platform-student .
 ```
 
-This creates the image that will be used for student containers.
+This creates the image that will be used for candidate containers.
 
 ### Verify Image Created
 
@@ -183,7 +172,7 @@ docker images | grep coding-platform-student
 
 # 2. Build container image
 cd docker
-docker build -f Dockerfile -t coding-platform-student .
+docker build -f Dockerfile.codeserver -t coding-platform-student .
 
 # 3. Start Flask app
 cd ..
@@ -199,27 +188,29 @@ docker ps
 
 # Should show running container like:
 # CONTAINER ID   IMAGE                        PORTS
-# abc123def456   coding-platform-student:latest   6000->8080/tcp
+# abc123def456   coding-platform-student:latest   7100->8080/tcp
 ```
 
 ### Access Code-Server
 ```
-http://localhost:6000  (or assigned port)
+http://localhost:7100  (or assigned port, always in the 7100-7900 range)
 ```
 
-## Docker Compose (Optional)
+## Docker Compose (Not the primary dev path)
 
-For full multi-service setup:
+`docker/docker-compose.yml` exists but is **not** what the running application actually uses — it orchestrates a PostgreSQL + Redis + separate backend container setup that nothing in the current codebase reads from or writes to (the app is SQLite-only, no Redis anywhere). The live dev workflow is `python run.py` directly, with candidate containers spun up ad hoc via `docker_service.py`'s subprocess calls to the `docker` CLI, not `docker-compose`.
+
+If you want to experiment with it anyway:
 
 ```bash
 cd docker
 docker-compose up --build
 ```
 
-Services started:
+Services it would start (unused by the app today):
 - Flask API: http://localhost:8000
-- PostgreSQL: localhost:5432 (if configured)
-- Redis: localhost:6379 (if configured)
+- PostgreSQL: localhost:5432
+- Redis: localhost:6379
 
 ## Production Docker Deployment
 
@@ -231,7 +222,7 @@ docker build -f docker/Dockerfile.backend -t coding-platform:prod .
 
 # Run with proper configuration
 docker run \
-  -e ANTHROPIC_API_KEY="sk-ant-..." \
+  -e OPENROUTER_API_KEY="sk-or-..." \
   -e FLASK_ENV="production" \
   -p 8000:8000 \
   --volume /var/lib/data:/app/data \
@@ -254,23 +245,24 @@ kubectl apply -f k8s/deployment.yaml
 ## System Without Docker (Development)
 
 The platform works fine without Docker for:
-- **Testing teacher workflows** - Create assignments, test UI
+- **Testing employer workflows** - Create assignments, test UI
 - **Testing API endpoints** - All endpoints functional
 - **Testing evaluation logic** - AI evaluation works
+- **Running the test suite** - `python -m pytest tests/ -v` never needs Docker or an LLM key
 - **Development** - Code changes, feature testing
 
 What you **can't test** without Docker:
-- Student container creation
+- Candidate container creation
 - Code-server environment
 - File collection from containers
-- Complete end-to-end student workflow
+- Complete end-to-end candidate workflow
 
 ## Recommended Development Setup
 
 ### Minimal (No Docker)
 ```
 python run.py
-# Test teacher dashboard and API
+# Test employer dashboard and API
 # Port: 8000
 ```
 
@@ -280,18 +272,16 @@ python run.py
 python run.py
 
 # Terminal 2: Start code-server manually (if needed)
-docker run -p 6000:8080 codercom/code-server
+docker run -p 7100:8080 codercom/code-server
 
 # Access:
-# Teacher: http://localhost:8000
-# Student: http://localhost:6000
+# Employer: http://localhost:8000
+# Candidate: http://localhost:7100
 ```
 
-### Docker Compose (Production-like)
-```bash
-cd docker
-docker-compose up --build
-```
+### Docker Compose
+
+Not the primary path — see the "Docker Compose (Not the primary dev path)" note above.
 
 ## Checking Docker Resources
 
@@ -323,9 +313,9 @@ docker system prune -v
 
 ### Access Container from Host
 ```bash
-# If container exposed port 6000
-http://localhost:6000
-http://127.0.0.1:6000
+# If container was assigned port 7100
+http://localhost:7100
+http://127.0.0.1:7100
 ```
 
 ### Access Host from Container
@@ -339,10 +329,11 @@ http://172.17.0.1:8000            # Linux
 
 ```bash
 # .env file
-DOCKER_HOST=              # Leave empty for default
-DOCKER_IMAGE=coding-platform-student  # Image name
-DOCKER_REGISTRY=          # Registry URL if using custom registry
+DOCKER_HOST=                                  # Leave empty for default
+DOCKER_IMAGE=coding-platform-student:latest   # Image name (default shown)
 ```
+
+These map directly to `Config.DOCKER_HOST`/`Config.DOCKER_IMAGE` in `app/config.py`. The container port range (7100-7900) is a hardcoded constant, not an env var — it isn't configurable without editing `app/config.py` directly.
 
 ## Troubleshooting Workflow
 
@@ -359,7 +350,7 @@ DOCKER_REGISTRY=          # Registry URL if using custom registry
 
 3. **Rebuild Image**
    ```bash
-   docker build --no-cache -f docker/Dockerfile -t coding-platform-student .
+   docker build --no-cache -f docker/Dockerfile.codeserver -t coding-platform-student .
    ```
 
 4. **Test Manually**

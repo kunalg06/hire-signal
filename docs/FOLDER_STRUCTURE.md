@@ -1,330 +1,96 @@
-# Project Folder Structure
+# Folder Structure
 
-Complete organizational structure of the AI Engineering Assessment & Evaluation Platform.
-
-## Directory Tree
+Annotated directory tree for hire-signal.
 
 ```
 coding_platforms/
 │
-├── 📄 ROOT LEVEL (Essential Files Only - 5 Files)
-│   ├── run.py                          # Flask application entry point
-│   ├── requirements.txt                # Python dependencies
-│   ├── README.md                       # Main documentation and quick start
-│   ├── CLAUDE.md                       # Development guide and customization
-│   └── FOLDER_STRUCTURE.md             # This file - folder organization guide
+├── run.py                      # Entry point — python run.py starts the Flask dev server
+├── requirements.txt             # Python dependencies
+├── CLAUDE.md                    # Dev guide for Claude Code sessions (architecture, constraints, debugging)
+├── AGENT.md                     # Living session-continuity file — sprint state, deferred issues
+├── README.md                    # Project overview and quick start
+├── QUICKSTART.md                 # Step-by-step first-run guide
+├── DOCKER_QUICK_START.md         # Fast Docker setup path
+├── DOCKER_SETUP.md               # Full Docker setup + troubleshooting
+├── conftest.py                   # Root pytest conftest — puts project root on sys.path
 │
-├── 📁 app/                             # Flask Application Package
-│   ├── __init__.py                     # App factory (UPDATED: serves from templates/)
-│   ├── config.py                       # Configuration (UPDATED: uses data/ folder)
-│   │
-│   ├── routes/                         # HTTP Request Handlers (Blueprints)
-│   │   ├── assignments.py              # POST/GET /api/assignments
-│   │   ├── links.py                    # POST /api/generate-link/{id}
-│   │   ├── submissions.py              # POST /api/submit-with-files, GET /api/submission
-│   │   ├── student.py                  # GET /student/{link_id}
-│   │   └── management.py               # GET /api/system/*, POST /api/system/*
-│   │
-│   ├── services/                       # Business Logic Layer
-│   │   ├── docker_service.py           # Docker container operations
-│   │   ├── evaluation_service.py       # Claude API integration
-│   │   ├── session_log_service.py      # Session log parsing & scoring
-│   │   ├── database_service.py         # Database operations wrapper
-│   │   └── management_service.py       # System health & monitoring
-│   │
-│   ├── models/                         # Data Access Layer
-│   │   └── database.py                 # SQLite connection & schema
-│   │
-│   └── utils/                          # Utility Functions
-│       └── helpers.py                  # RateLimiter, IDGenerator, validators
+├── app/                          # Flask application package
+│   ├── __init__.py                # create_app(config_name) — app factory, blueprint registration
+│   ├── config.py                  # Config / DevelopmentConfig / TestingConfig / ProductionConfig
+│   ├── models/
+│   │   ├── __init__.py
+│   │   └── database.py             # Database class — sqlite3 connections, init_db() schema + migrations
+│   ├── routes/                     # One Flask blueprint per concern
+│   │   ├── __init__.py
+│   │   ├── assignments.py           # /api/assignments
+│   │   ├── links.py                 # /api/generate-link/<id>
+│   │   ├── challenges.py            # /api/generate-challenge, /api/challenges/*
+│   │   ├── submissions.py           # /api/submit-with-files, /api/submission/*, flag/override
+│   │   ├── student.py               # /student/<link_id>, /student/preview/<challenge_id>
+│   │   ├── analytics.py             # /api/analytics/overrides
+│   │   └── management.py            # /api/system/* — status, health, container admin
+│   ├── services/                   # Business logic, no Flask imports
+│   │   ├── __init__.py
+│   │   ├── database_service.py      # All SQL — raw sqlite3, no ORM
+│   │   ├── evaluation_service.py    # 8-dimension scoring, hire thresholds, challenge generation
+│   │   ├── llm_service.py           # OpenRouter wrapper — the only LLM call surface in the codebase
+│   │   ├── docker_service.py        # Container lifecycle via subprocess `docker` CLI
+│   │   ├── management_service.py    # System status / container admin helpers
+│   │   └── session_log_service.py   # Parses Claude Code CLI session logs
+│   ├── utils/
+│   │   ├── __init__.py
+│   │   └── helpers.py               # IDGenerator, ValidationHelper, RateLimiter, DateTimeHelper
+│   └── templates/                   # Currently empty — the real frontend lives at the repo-root templates/
 │
-├── 📁 templates/                       # HTML Templates (NEW LOCATION)
-│   └── frontend.html                   # Teacher Dashboard (MOVED HERE)
-│       ├── 4 Tabs:
-│       │   ├── Create Assignment
-│       │   ├── Generate Student Link
-│       │   ├── View Submissions
-│       │   └── System Management
-│       └── Responsive design (desktop & mobile)
+├── templates/
+│   └── frontend.html              # The entire employer dashboard — single-file HTML/CSS/vanilla JS
 │
-├── 📁 data/                            # Database & Data Files (NEW LOCATION)
-│   ├── assignments.db                  # Production SQLite database (MOVED HERE)
-│   └── test_assignments.db             # Test database (MOVED HERE)
+├── tests/                          # pytest suite — 64 tests, 5 files, no LLM key or Docker daemon required
+│   ├── test_score_8_dimensions.py           # 8-dim scoring unit tests (LLM mocked)
+│   ├── test_extract_container_files.py       # Workspace-snapshot unit tests (Docker mocked)
+│   ├── test_hire_recommendation_thresholds.py # Threshold-boundary precision tests
+│   ├── test_candidates_endpoint.py            # Integration test — real Flask client + isolated SQLite
+│   └── test_generate_challenge_endpoint.py    # Integration test — challenge generation + persistence
 │
-├── 📁 docker/                          # Docker Configuration
-│   ├── Dockerfile                      # Student environment (code-server)
-│   ├── Dockerfile.backend              # Flask backend service
-│   ├── Dockerfile.codeserver           # Code-server builder
-│   └── docker-compose.yml              # Service orchestration (UPDATED: uses ../data)
+├── docker/                         # Container build/orchestration definitions
+│   ├── Dockerfile.codeserver        # Candidate container image — code-server + Claude Code CLI
+│   ├── Dockerfile.backend           # Flask backend image (used only by docker-compose.yml, legacy/optional)
+│   ├── Dockerfile                   # Alternate/earlier code-server image variant
+│   ├── docker-compose.yml           # Legacy multi-service orchestration (Postgres/Redis included but
+│   │                                 # unused by the current codebase — the live app runs `python run.py`
+│   │                                 # directly and manages containers via docker_service.py's subprocess
+│   │                                 # calls, not docker-compose)
+│   └── start-services.py
 │
-├── 📁 docs/                            # Documentation
-│   ├── API_REFERENCE.md                # Complete API documentation (350+ lines)
-│   │                                     ├── All endpoint specs
-│   │                                     ├── Request/response examples
-│   │                                     ├── Error codes
-│   │                                     └── Usage workflows
-│   │
-│   ├── ARCHITECTURE.md                 # System architecture (600+ lines)
-│   │                                     ├── Component diagrams
-│   │                                     ├── Data flow diagrams
-│   │                                     ├── Database schema
-│   │                                     └── Scaling architecture
-│   │
-│   ├── PROJECT_REQUIREMENTS.md         # Requirements (700+ lines)
-│   │                                     ├── Functional requirements
-│   │                                     ├── Non-functional requirements
-│   │                                     ├── Database schema details
-│   │                                     └── Deployment requirements
-│   │
-│   └── problem_statements.txt          # Example assignment problems
+├── scripts/
+│   └── seed_challenges.py          # Seeds 10 curated challenges across the type/skill-area matrix
 │
-├── 📁 scripts/                         # Utility Scripts
-│   └── quickstart.sh                   # Quick start setup script
+├── tools/
+│   └── client.py                   # Small Python client for exercising the API programmatically
 │
-├── 📁 tools/                           # SDK and Utilities
-│   └── client.py                       # Python SDK client
+├── docs/                           # Reference documentation (this folder)
+│   ├── ARCHITECTURE.md              # System diagram + the 4 core request/response flows
+│   ├── API_REFERENCE.md             # Full endpoint reference with request/response examples
+│   ├── PROJECT_REQUIREMENTS.md      # Product requirements, scoring rubric, scope boundaries
+│   ├── FOLDER_STRUCTURE.md          # This file
+│   └── problem_statements.txt       # Raw source material used when seeding challenges
 │
-├── 📁 tests/                           # Test Files
-│   └── (test files go here)
+├── data/                           # SQLite database files (gitignored — data/*.db, never committed)
+│   └── assignments.db               # The live dev database
 │
-├── 📁 _deprecated/                     # Old Implementation (Do Not Use)
-│   ├── app.py                          # Old FastAPI version (archived)
-│   └── main.py                         # Old implementation (archived)
-│
-├── 📁 .git/                            # Git repository
-├── 📁 .github/                         # GitHub workflows
-├── 📁 .claude/                         # Claude Code configuration
-├── 📁 _bmad/                           # BMAD workflow files
-└── 📁 _bmad-output/                    # BMAD output
+└── _bmad-output/                   # BMad Method planning + implementation artifacts
+    ├── planning-artifacts/
+    │   └── epics-and-stories.md     # Full epic/story backlog spec
+    └── implementation-artifacts/
+        ├── sprint-status.yaml       # Per-story status tracking (all epics currently `done`)
+        ├── deferred-work.md         # Every known-but-unfixed issue, with file/line references
+        └── <epic>-<story>-<slug>.md # One file per implemented story — full context + review history
 ```
 
----
+## Notes on structure
 
-## Key Changes from Reorganization
-
-### ✅ Files Moved to Proper Folders
-
-| File | From | To | Purpose |
-|------|------|-----|---------|
-| frontend.html | Root | **templates/** | Flask template folder |
-| assignments.db | Root | **data/** | Centralized database storage |
-| test_assignments.db | Root | **data/** | Centralized test data |
-
-### ✅ Imports Updated
-
-| File | Change | Reason |
-|------|--------|--------|
-| **app/__init__.py** | Serves frontend from `templates/frontend.html` | Proper Flask structure |
-| **app/config.py** | Database path points to `data/assignments.db` | Clean root directory |
-| **docker-compose.yml** | Mounts `../data` volume | Works from docker/ folder |
-
----
-
-## Root Directory (Clean & Minimal)
-
-Only **5 essential files** in root:
-
-```
-run.py                  # Entry point to start Flask
-requirements.txt        # Python dependencies
-README.md               # Main documentation (start here)
-CLAUDE.md               # Development guide
-FOLDER_STRUCTURE.md     # This file
-.env.example            # Configuration template (not in git)
-.env                    # Your environment config (not in git)
-```
-
-**Before:** 30+ files scattered  
-**After:** 7 files (5 tracked + 2 .env files)
-
----
-
-## How Files are Located
-
-### **Absolute Path Resolution** ✅
-
-When Flask starts:
-
-```python
-# In app/__init__.py
-project_root = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
-# = E:\project2025\coding_platforms
-
-# Template folder
-template_folder = os.path.join(project_root, 'templates')
-# = E:\project2025\coding_platforms\templates
-
-# Database path
-DB_PATH = os.path.join('data', 'assignments.db')
-# = E:\project2025\coding_platforms\data\assignments.db
-```
-
-This works from **any directory**:
-- Local development ✓
-- Docker container ✓
-- CI/CD pipeline ✓
-- Different working directories ✓
-
----
-
-## File Organization Rationale
-
-### **Root Level** (7 files)
-Minimal set for clarity:
-- `run.py` - Single entry point
-- `requirements.txt` - Standard location for pip
-- `README.md` - Quick start guide
-- `CLAUDE.md` - Development notes
-- `FOLDER_STRUCTURE.md` - This guide
-- `.env.example` - Configuration template
-- `.env` - Actual config (gitignored)
-
-### **app/** (5 subdirectories)
-Modular Flask structure:
-- `routes/` - HTTP handlers (thin)
-- `services/` - Business logic (thick)
-- `models/` - Data access (thin)
-- `utils/` - Shared utilities
-- `__init__.py` - App factory
-
-### **templates/** (1 file)
-HTML templates served by Flask:
-- `frontend.html` - Teacher dashboard
-
-### **data/** (2 files)
-Database files:
-- `assignments.db` - Production database
-- `test_assignments.db` - Test database
-
-### **docker/** (4 files)
-All Docker configuration:
-- 3 Dockerfiles
-- `docker-compose.yml` - Orchestration
-
-### **docs/** (4 files)
-User-facing documentation:
-- `API_REFERENCE.md` - API docs
-- `ARCHITECTURE.md` - System design
-- `PROJECT_REQUIREMENTS.md` - Specifications
-- `problem_statements.txt` - Examples
-
-### **Other Folders**
-- `scripts/` - Utility scripts
-- `tools/` - SDK and tools
-- `tests/` - Test files
-- `_deprecated/` - Old code (archived)
-
----
-
-## Running from Different Locations
-
-### From Project Root
-
-```bash
-cd E:\project2025\coding_platforms
-
-# Start Flask
-python run.py
-
-# Start Docker
-docker-compose -f docker/docker-compose.yml up --build
-```
-
-### From Subdirectory
-
-```bash
-cd E:\project2025\coding_platforms\app
-
-# Still works! Uses absolute paths
-python ../run.py
-```
-
-### In Docker
-
-```bash
-# Volume mounts work correctly
-docker-compose -f docker/docker-compose.yml up --build
-# Finds templates/ and data/ automatically
-```
-
----
-
-## Adding New Features
-
-### New REST Endpoint
-```
-1. Create file: app/routes/feature.py
-2. Create blueprint and register in app/__init__.py
-3. Implement logic: app/services/feature_service.py
-4. Add DB ops: app/models/database.py
-5. Test and document: docs/API_REFERENCE.md
-```
-
-### New HTML Template
-```
-1. Create file: templates/new_page.html
-2. Serve from app/__init__.py or via Flask route
-3. Reference in documentation
-```
-
-### New Database Feature
-```
-1. Update: app/models/database.py (schema & methods)
-2. Data auto-stored in: data/assignments.db
-3. Tests use: data/test_assignments.db
-```
-
----
-
-## Summary of Changes
-
-| Aspect | Before | After |
-|--------|--------|-------|
-| **Root Files** | 30+ scattered | 7 essential |
-| **Templates** | Root | `templates/` |
-| **Database** | Root | `data/` |
-| **Documentation** | Root | `docs/` |
-| **Docker Files** | Root | `docker/` |
-| **Import Paths** | Relative | Absolute |
-| **Clean Root** | No | Yes |
-| **Easy Navigation** | Difficult | Clear |
-
----
-
-## Environment Files
-
-### `.env.example` (In Root - Tracked)
-```env
-ANTHROPIC_API_KEY=sk-ant-your-key-here
-FLASK_ENV=development
-DB_PATH=data/assignments.db
-```
-
-### `.env` (In Root - Gitignored)
-```env
-# Copy from .env.example and fill in your values
-ANTHROPIC_API_KEY=sk-ant-xxxxxxxxxxxx
-FLASK_ENV=production
-```
-
----
-
-## Verification Checklist
-
-- [x] frontend.html moved to templates/
-- [x] assignments.db moved to data/
-- [x] test_assignments.db moved to data/
-- [x] app/__init__.py updated to serve from templates/
-- [x] app/config.py updated to use data/ folder
-- [x] docker-compose.yml updated for new paths
-- [x] Duplicate FOLDER_STRUCTURE.md removed
-- [x] Root directory clean (5 essential files)
-- [x] All imports reference correct locations
-- [x] Works from any directory
-
----
-
-**Last Updated:** June 2026  
-**Version:** 1.0.0  
-**Status:** Production Ready ✅  
-**Duplicates Cleaned:** Yes
+- **No `main.py`.** The old FastAPI-based single-file design was fully replaced by the Flask `app/` package — if you see a reference to `main.py` anywhere, it's stale documentation, not current code.
+- **Two `templates/` directories exist** (`app/templates/` and root `templates/`). Only the root one is used — `app/templates/` is empty and appears to be dead weight from an earlier refactor.
+- **`docker/docker-compose.yml` is not the primary dev path.** It references Postgres/Redis services that nothing in the current codebase reads or writes to. The actual dev workflow is `python run.py` plus Docker containers spun up ad hoc by `docker_service.py`.
+- **Route files construct their `db_service` at import time**, not per-request — this is a real trap for anyone writing new tests or scripts against these routes. See `CLAUDE.md`'s "Critical Trap" section before writing anything that touches a route's database access.

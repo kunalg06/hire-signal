@@ -8,555 +8,286 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 **At the start of every session, read `AGENT.md` before doing anything else.**
 
-`AGENT.md` contains: current implementation state, active epics/stories, next story to implement, known bugs, and key architectural decisions made in prior sessions. Do not ask the user to re-explain the project context — it is all in `AGENT.md`.
+`AGENT.md` is the living session-continuity file: current implementation state, epic/story status, known deferred issues, and architecture decisions made in prior sessions. This file (`CLAUDE.md`) is the stable how-to-work-here guide — it doesn't change every session. `AGENT.md` does.
 
 Full epics and stories spec: `_bmad-output/planning-artifacts/epics-and-stories.md`
+Deferred/known-issue log: `_bmad-output/implementation-artifacts/deferred-work.md`
 
 ---
 
 ## 🎯 Project Overview
 
-**AI Engineering Assessment & Evaluation Platform** is a production-ready educational system where teachers create coding assignments and Claude AI automatically evaluates student submissions. Students access browser-based VS Code environments (code-server) running in isolated Docker containers.
+**hire-signal** is an AI hire-readiness evaluation platform. Employers post coding challenges; candidates complete them in isolated Docker containers running browser-based VS Code with Claude Code CLI access. Submissions are scored across **8 AI-collaboration dimensions** and produce a hire recommendation (`strong_hire` / `hire` / `select` / `pass`).
+
+**This is a hiring tool, not an educational platform.** It evaluates AI-assisted coding competency, not raw coding ability in isolation.
 
 ### Core Flow
-1. Teachers create assignments via REST API or HTML dashboard
-2. Generate unique access links for students
-3. Each link spins up an isolated Docker container with VS Code
-4. Students code in the browser and submit for evaluation
-5. Claude evaluates code and provides feedback
-6. Results stored in SQLite database and shown in teacher dashboard
+1. Employer generates a market-aligned coding challenge (Claude-authored) or picks one from the catalog
+2. Employer creates an assignment from that challenge and generates a candidate access link
+3. Each link spins up an isolated Docker container running code-server with the Claude Code CLI pre-installed
+4. Candidate codes in the browser, optionally collaborating with Claude, and submits
+5. Claude scores the submission across 8 dimensions; Python enforces the hire-recommendation thresholds
+6. Results appear on the employer dashboard: ranked candidate list, radar chart, side-by-side comparison, flag/override workflow
 
 ---
 
-## 🗂️ Project Architecture
+## 🗂️ Architecture
 
-### Three-Tier System
+### Backend — Flask application factory (`app/`)
 
-**Frontend Layer** (`frontend.html`)
-- Pure HTML/CSS/JavaScript dashboard
-- No backend required for UI rendering
-- Makes REST API calls to backend
-- Teacher-facing: create assignments, generate links, view results
+```
+app/
+├── __init__.py          # create_app(config_name) — loads .env, registers all 7 blueprints
+├── config.py             # Config / DevelopmentConfig / TestingConfig / ProductionConfig
+├── models/
+│   └── database.py       # Database class — sqlite3 connection + init_db() (CREATE TABLE IF NOT EXISTS + migrations)
+├── routes/                # 7 Flask blueprints, one per concern (see API section below)
+├── services/
+│   ├── database_service.py    # All SQL — raw sqlite3, no ORM
+│   ├── evaluation_service.py  # 8-dimension scoring, hire-threshold enforcement, challenge generation
+│   ├── llm_service.py         # Thin OpenRouter wrapper — the ONLY LLM call surface
+│   ├── docker_service.py      # Container lifecycle via subprocess `docker` CLI (not the docker SDK)
+│   ├── management_service.py  # System status / container admin helpers
+│   └── session_log_service.py # Parses Claude Code CLI session logs from the student container
+└── utils/helpers.py       # IDGenerator, ValidationHelper, RateLimiter
+```
 
-**Backend Layer** (`app.py`)
-- Flask application (Python 3.11)
-- REST API endpoints for all operations
-- Database management (SQLite auto-initialized)
-- Docker container orchestration
-- Claude API integration for code evaluation
-- Runs on port 8000
+There is **no `main.py`**. The entry point is `run.py` at the repo root, which calls `create_app(env)` and runs the Flask dev server.
 
-**Student Environment Layer** (`Dockerfile`)
-- Isolated container per student session
-- code-server (browser-based VS Code)
-- Python 3 + development tools
-- Anthropic SDK pre-installed
-- Auto-assigned port (6080-7000 range)
+### Frontend (`templates/frontend.html`)
 
-### Database Schema
+Single-file HTML/CSS/vanilla-JS employer dashboard (~85KB). No build step, no framework. Served directly by Flask's `/` route (`app/__init__.py`). Talks to the backend via relative `/api/...` fetch calls.
 
-Three SQLite tables (auto-created on startup):
-- **assignments**: Title, description, starter code, evaluation criteria
-- **session_links**: Maps unique link_id to assignment_id, container, port, expiration
-- **submissions**: Stores submitted code, evaluation results, score, feedback
+### Student environment (`docker/`)
 
-### Key Dependencies
-- **fastapi**: Web framework
-- **docker**: Python Docker SDK for container management
-- **anthropic**: Claude API client
-- **pydantic**: Request/response validation
-- **uvicorn**: ASGI server
-- **sqlalchemy**: (optional) Database ORM for PostgreSQL
+- `Dockerfile.codeserver` — code-server + Claude Code CLI (`@anthropic-ai/claude-code` via npm), restricted to `claude-haiku-4.5` by container-level config
+- `Dockerfile.backend` — Flask backend image (used only by `docker/docker-compose.yml`, which is a legacy/optional orchestration path — the actual dev workflow runs `python run.py` directly and manages student containers via `DockerService`'s subprocess CLI calls, not `docker-compose`)
+- Container port range: **7100–7900** (see Architecture Constraints below)
+
+### Database — SQLite, no ORM
+
+10 tables via raw SQL in `app/models/database.py`. See **DB Schema** section below for the full table list. Migrations are `ALTER TABLE ... ADD COLUMN` wrapped in `try/except sqlite3.OperationalError`, run idempotently every time `init_db()` is called.
+
+---
+
+## 🔑 Key Product Decisions
+
+- **8-Dimension scoring** (`EvaluationService.DIMENSION_WEIGHTS`, `app/services/evaluation_service.py`):
+  1. Problem Decomposition (15%)
+  2. First-Principles Thinking (15%)
+  3. Creative Problem Solving (10%)
+  4. Iteration Quality (15%)
+  5. Debugging with AI (15%)
+  6. Architecture Decisions (10%)
+  7. Communication Clarity (10%)
+  8. Token Efficiency (10%)
+
+- **Hire recommendation thresholds** (`EvaluationService.HIRE_THRESHOLDS`): `strong_hire >= 85`, `hire >= 70`, `select >= 55`, `pass < 55` — **enforced in Python, never trusted from Claude's own response**. This is load-bearing: the LLM's scoring prompt asks it to also compute a composite/recommendation, but the route always recomputes both from the raw per-dimension scores.
+
+- **Human override policy**: AI scores inform, never decide. Employers can flag any submission or override its hire recommendation. Every override is logged as an append-only calibration event (`score_overrides` table) — never UPDATE/DELETE that table. The original AI `composite_score`/`recommendation` in `hire_evaluations` are read-only after creation.
+
+- **Visibility floor**: score affects candidate rank, never hides a candidate. Un-evaluated candidates always sort last regardless of sort direction (`math.inf`/`-math.inf` sentinel in the ranking route).
+
+- **Guarded vs unguarded mode**: `unguarded` lets Claude give full solutions inside the student container; `guarded` injects a `/workspace/CLAUDE.md` asking Claude Code CLI to restrict itself to conceptual guidance. **This is honor-system-only** — the candidate has shell access and can delete/edit the file. Accepted as v1 scope (see `deferred-work.md`).
+
+- **Challenge types**: `bug_fix | feature_extension | refactoring | optimization`
+- **Skill areas**: `api_integration | rate_limiting | data_pipeline | llm_usage | server_monitoring | game_logic`
 
 ---
 
 ## 🚀 Common Development Tasks
 
-### Starting Services
+### Running the app
 
 ```bash
-# Development with hot reload
-docker-compose up --build
-
-# Services run on:
-# - Backend API: http://localhost:8000
-# - Frontend: open frontend.html in browser
-# - API docs: http://localhost:8000/docs
+# Set OPENROUTER_API_KEY in .env first (copy from .env.example)
+python run.py
+# Backend + frontend both served from http://localhost:8000
 ```
 
-### Running Individual Components
+There is no separate frontend dev server — `templates/frontend.html` is served directly by the Flask app.
+
+### Running tests
 
 ```bash
-# Just the backend (assumes Docker available)
-python main.py
-
-# Serve frontend locally (Python)
-python -m http.server 8080
-# Then visit http://localhost:8080/frontend.html
+python -m pytest tests/ -v
 ```
 
-### Building & Testing
+- 64 tests across 5 files (`tests/test_score_8_dimensions.py`, `test_extract_container_files.py`, `test_hire_recommendation_thresholds.py`, `test_candidates_endpoint.py`, `test_generate_challenge_endpoint.py`)
+- Root `conftest.py` puts the project root on `sys.path` — no package install needed
+- All LLM calls are mocked (`LLMService.chat` monkeypatched) — **no `OPENROUTER_API_KEY` required to run the suite**
+- Integration tests (`test_candidates_endpoint.py`, `test_generate_challenge_endpoint.py`) use `create_app("testing")` plus a monkeypatched, `tmp_path`-backed SQLite file — see the ⚠️ warning below before writing any new integration test
+
+### Testing the API directly
 
 ```bash
-# Run automated setup (includes Docker build)
-chmod +x quickstart.sh
-./quickstart.sh
+curl -X POST http://localhost:8000/api/generate-challenge \
+  -H "Content-Type: application/json" \
+  -d '{"problem_statement":"Fix a leaking rate limiter","difficulty":"medium"}'
 
-# Rebuild containers without cache
-docker-compose build --no-cache
-
-# View logs in real-time
-docker-compose logs -f backend
-
-# Check running containers
-docker-compose ps
-```
-
-### Testing the API
-
-```bash
-# View auto-generated API documentation
-# Open http://localhost:8000/docs in browser
-
-# Create assignment via curl
 curl -X POST http://localhost:8000/api/assignments \
   -H "Content-Type: application/json" \
-  -d '{"title":"Test","description":"Test","evaluation_criteria":"Test"}'
+  -d '{"title":"Test","evaluation_criteria":"Test"}'
 
-# Generate student link
 curl -X POST http://localhost:8000/api/generate-link/{assignment_id}
-
-# Submit code
-curl -X POST http://localhost:8000/api/submit/{link_id} \
-  -H "Content-Type: application/json" \
-  -d '{"code":"def hello(): pass"}'
-
-# Get submission results
-curl http://localhost:8000/api/submission/{submission_id}
+curl http://localhost:8000/api/challenges/{challenge_id}/candidates
 ```
 
-### Accessing Student Containers
+### Seeding sample challenges
 
 ```bash
-# List all running assignment containers
-docker ps | grep assignment
-
-# Access a container's shell
-docker exec -it {container_id} bash
-
-# View container logs
-docker logs {container_id}
-
-# Check file contents in container
-docker exec {container_id} cat /workspace/solution.py
+python scripts/seed_challenges.py
 ```
 
 ---
 
-## 📁 Critical File Guide
+## ⚠️ Critical Trap — Blueprint `db_service` Is an Import-Time Singleton
 
-### Backend Implementation (`main.py` - 1000+ lines)
+**Every route file constructs `db_service = DatabaseService()` at module import time**, not per-request. `DatabaseService.__init__` resolves `Config.DB_PATH` **once**, at that moment — which means:
 
-**Key sections**:
-- Lines 17-63: FastAPI app initialization, Docker/Anthropic client setup
-- Lines 65-140: Database initialization with three tables
-- Lines 200-300: Assignment CRUD endpoints (`/api/assignments`)
-- Lines 400-500: Link generation (`/api/generate-link/{assignment_id}`)
-- Lines 600-700: Docker container management
-- Lines 800-900: Submission handling (`/api/submit/{link_id}`)
-- Lines 1000+: Claude API evaluation (`evaluate_code_with_claude()`)
+- `create_app(config_name)` does **not** give you database isolation. It builds its own separate `Database(config.DB_PATH)` purely to call `.init_db()` during app setup; the blueprints' `db_service` singletons never see it.
+- Because Python caches module imports, if `app.config` (and therefore all 7 blueprints) is imported anywhere earlier in a process — including transitively, e.g. any file that does `from app.services.evaluation_service import ...` — the singletons are already constructed and already pointed at whatever `Config.DB_PATH` resolved to at that time (default: the real `data/assignments.db`).
 
-**Key functions**:
-- `init_db()`: Auto-creates SQLite tables on startup
-- `get_docker_client()`: Lazy initialization of Docker connection
-- `get_anthropic_client()`: Lazy initialization of Claude API client
-- `evaluate_code_with_claude()`: Sends code to Claude for evaluation with prompt engineering
-
-### Frontend (`frontend.html` - 400+ lines)
-
-**Key sections**:
-- Styles: Purple gradient theme with responsive grid layout
-- Create Assignment form: Collects title, description, starter code, evaluation criteria
-- Generate Link form: Takes assignment ID, returns unique access URL
-- Submit Code form: Student submission interface
-- Results display: Shows score, feedback, evaluation details
-
-**Key JavaScript functions**:
-- `createAssignment()`: POST to `/api/assignments`
-- `generateLink()`: POST to `/api/generate-link/{id}`
-- `submitCode()`: POST to `/api/submit/{link_id}`
-- `getSubmission()`: GET from `/api/submission/{id}`
-
-### Docker Configuration
-
-**`Dockerfile`**: Student environment
-- Base: Python 3.11 + code-server
-- Pre-installs: Anthropic SDK, git, development tools
-- Exposes: Port 8080 for code-server UI
-- Loads: Starter code into `/workspace/solution.py`
-
-**`Dockerfile.backend`**: Backend service
-- Base: Python 3.11 slim
-- Installs: Dependencies from requirements.txt
-- Exposes: Port 8000
-
-**`docker-compose.yml`**: Orchestration
-- Services: backend (port 8000), optional postgres/redis
-- Volumes: Docker socket for container management
-- Network: assignment-network for service communication
-- Environment: Sets ANTHROPIC_API_KEY and other env vars
-
-### Support Files
-
-**`client.py`**: Python SDK for programmatic API access
-- `AssignmentClient` class with methods: `create_assignment()`, `generate_link()`, `submit_code()`, `get_submission()`
-- Helper: `demo_workflow()` shows complete usage example
-
-**`requirements.txt`**: All Python dependencies
-- Core: fastapi, uvicorn, anthropic, docker
-- Optional: sqlalchemy, psycopg2 (for PostgreSQL), redis
-
-**`quickstart.sh`**: Automated setup script
-- Validates Docker/API key
-- Creates `.env` file
-- Builds and starts services
-- Provides access instructions
-
----
-
-## 🔑 Important Implementation Details
-
-### Environment Variables
-
-**Required**:
-- `ANTHROPIC_API_KEY`: Claude API key (format: `sk-ant-...`)
-
-**Optional**:
-- `DB_PASSWORD`: Database password (if using PostgreSQL)
-- `DATABASE_URL`: Custom DB connection string (defaults to SQLite)
-- `DOCKER_HOST`: Docker daemon socket (defaults to Unix socket or Windows pipe)
-- `PORT`: Backend port (defaults to 8000)
-- `LOG_LEVEL`: Logging level (defaults to INFO)
-
-### API Endpoints Summary
-
-**Assignment Management**:
-- `POST /api/assignments` - Create assignment
-- `GET /api/assignments/{id}` - Get assignment details
-
-**Link Generation**:
-- `POST /api/generate-link/{assignment_id}` - Generate student link
-- `GET /api/session/{link_id}` - Get session info
-
-**Submissions**:
-- `POST /api/submit/{link_id}` - Submit code for evaluation
-- `GET /api/submission/{id}` - Get evaluation results
-- `GET /api/health` - Health check
-
-### Docker Container Lifecycle
-
-1. **Link Generation**: When `/api/generate-link` is called, main.py:
-   - Finds available port (starting at 6000)
-   - Creates Docker container from `Dockerfile`
-   - Injects starter code
-   - Exposes port via port mapping
-   - Stores container_id and port in database
-
-2. **Student Access**: Browser-based code-server accessible at `http://localhost:{port}`
-
-3. **Auto-Cleanup**: Containers stay alive for 24 hours (configurable), then auto-removed
-
-### Claude Evaluation Flow
-
-1. **Submission**: Student submits code via `/api/submit/{link_id}`
-2. **Prompt Engineering**: `evaluate_code_with_claude()` builds evaluation prompt including:
-   - Submitted code
-   - Assignment description
-   - Evaluation criteria
-   - Request for score (0-100) + feedback
-3. **Claude Response**: Parsed for score, feedback, and evaluation details
-4. **Storage**: Results stored in submissions table with timestamp
-5. **Display**: Teacher views via frontend dashboard
+**If you write a test or script that touches any route's `db_service`, you must directly monkeypatch that module's `db_service.db` attribute** onto a fresh `Database(temp_path)` instance — do not rely on `create_app(config_name)` alone. See `tests/test_candidates_endpoint.py`'s `client` fixture for the reference pattern (discovered and fixed during Story 7.4; reused in Story 7.5).
 
 ---
 
 ## 🛠️ Common Customization Points
 
-### Change Claude Model
-In `main.py`, find `evaluate_code_with_claude()` function and modify:
-```python
-message = anthropic_client.messages.create(
-    model="claude-sonnet-4-20250514",  # or claude-haiku-4-5
-    ...
-)
-```
+### Change the LLM model
+`OPENROUTER_MODEL` env var (default `anthropic/claude-haiku-4-5`). Routed entirely through `LLMService.chat()` in `app/services/llm_service.py` — this is the **only** LLM call surface in the codebase; do not call `openai`/`anthropic` SDKs directly anywhere else.
 
-Available models: opus-4-1 (most capable), sonnet-4 (balanced), haiku-4-5 (fastest)
+### Add packages to the student container
+Edit `docker/Dockerfile.codeserver`.
 
-### Add More Tools to Student Container
-In `Dockerfile`, add packages:
-```dockerfile
-RUN pip install --no-cache-dir \
-    numpy \
-    pandas \
-    requests
-```
+### Add a new challenge type or skill area
+Extend `VALID_CHALLENGE_TYPES`/`VALID_SKILL_AREAS` in `app/routes/challenges.py`, and the corresponding `type_instruction`/`skill_imports` dicts in `EvaluationService.generate_challenge()`.
 
-### Switch to PostgreSQL
-1. Uncomment postgres service in `docker-compose.yml`
-2. Update `DATABASE_URL` environment variable
-3. Update connection string in `main.py`
-
-### Customize Evaluation Prompt
-In `main.py`, modify the `evaluation_prompt` string in `evaluate_code_with_claude()` to change:
-- Evaluation criteria emphasis
-- Scoring rubric
-- Feedback tone/detail level
+### Customize the scoring rubric
+`EvaluationService.score_8_dimensions()` builds the full scoring prompt inline in `app/services/evaluation_service.py` — dimension rubric text lives there, weights live in `DIMENSION_WEIGHTS` at the top of the class.
 
 ---
 
 ## 🔍 Debugging & Troubleshooting
 
-### Common Issues
+**Port already in use** — the app runs on 8000 by default (`PORT` env var); student containers use 7100–7900.
 
-**Port Already in Use**
-```bash
-# Kill process on port
-lsof -i :8000  # (or :6000 for student containers)
-kill -9 <PID>
+**`OPENROUTER_API_KEY not set`** — `LLMService.get_client()` raises `ValueError` if the key is empty after stripping quotes/whitespace. Check `.env`.
 
-# Or use different port
-PORT=8001 docker-compose up
-```
+**Docker unavailable** — the system degrades gracefully. Links still generate instantly with a helpful message; `DockerService.get_client()` returns `None` rather than raising when the `docker` CLI isn't reachable.
 
-**Docker Permission Denied**
-```bash
-# Linux
-sudo chmod 666 /var/run/docker.sock
-sudo usermod -aG docker $USER
+**A student container's iframe won't load** — no `sandbox` attribute is set on the student iframe intentionally; code-server relies on service workers that a sandboxed iframe would block.
 
-# Windows: Run as Administrator or check Docker Desktop settings
-```
+**Windows-only: garbled/crashed print output** — the console is cp1252. Never put non-ASCII characters (arrows, em-dashes, etc.) directly in `print()`/`logging` calls; this has silently aborted execution before. ASCII only.
 
-**API Key Invalid**
-```bash
-# Verify key is set
-echo $ANTHROPIC_API_KEY
-
-# Get new key from https://console.anthropic.com
-# Set in .env file or export in shell
-```
-
-**Container Won't Start**
-```bash
-# Check backend logs for errors
-docker-compose logs backend
-
-# View specific container
-docker logs {container_id}
-
-# Rebuild without cache
-docker-compose build --no-cache
-```
-
-### Debugging Tips
-
-- **API Docs**: Always check http://localhost:8000/docs for live endpoint documentation
-- **Database**: Inspect SQLite with `sqlite3 assignments.db "SELECT * FROM submissions;"`
-- **Containers**: Use `docker ps` to see running containers, `docker logs` to view output
-- **Frontend Console**: Press F12 in browser to see JavaScript errors and network requests
+**Database looks stale mid-session** — remember the import-time-singleton trap above. If you changed `DB_PATH` and things don't reflect it, you're probably looking at a `db_service` that was constructed before your change took effect.
 
 ---
 
-## 📊 Data Model & Flow
+## 📊 DB Schema — 10 Tables
 
-### Request/Response Cycle
-
-**Creating Assignment**:
-```
-Frontend POST → /api/assignments
-             → Validate with Pydantic
-             → Generate UUID
-             → Insert into assignments table
-             → Return assignment object
-```
-
-**Generating Link**:
-```
-Frontend POST → /api/generate-link/{id}
-             → Find available port
-             → Create Docker container
-             → Inject starter code
-             → Insert into session_links table
-             → Return link_id and access_url
-```
-
-**Submitting Code**:
-```
-Student POST → /api/submit/{link_id}
-            → Validate submission
-            → Insert into submissions table
-            → Trigger evaluate_code_with_claude() in background
-            → Call Claude API with code + criteria
-            → Parse Claude response for score + feedback
-            → Update submission with results
-            → Return submission_id
-```
+| Table | Purpose | Key columns |
+|---|---|---|
+| `assignments` | An employer-created assessment | `id, title, description, starter_code, evaluation_criteria, challenge_id` |
+| `session_links` | Maps a shareable link to a running container | `link_id, assignment_id, container_id, port, expires_at` |
+| `submissions` | A candidate's submitted code | `submission_id, link_id, assignment_id, score, feedback, is_flagged, flag_reason, flag_by, flagged_at` |
+| `submission_files` | Individual files within a submission | `file_id, submission_id, filename, content, file_size` |
+| `session_logs` | Parsed Claude Code CLI interaction log | `log_id, submission_id, timestamp, interaction_type, prompt, response_summary` |
+| `dimension_scores` | Per-dimension score + rationale | `score_id, submission_id, dimension, score, rationale` |
+| `hire_evaluations` | Composite score + recommendation (+ override) | `eval_id, submission_id, composite_score, recommendation, is_overridden, override_recommendation, override_rationale, evaluated_at` |
+| `challenges` | Challenge catalog (generated or curated) | `id, title, domain, description, evaluation_rubric, starter_code, challenge_type, skill_area, difficulty, ai_assistance_mode, is_published, created_at` |
+| `comparison_sessions` | Saved side-by-side comparison views | `id, challenge_id, name, submission_ids_json, created_at` |
+| `score_overrides` | Append-only human-override audit log | `id, submission_id, ai_recommendation, human_recommendation, override_rationale, overridden_at` |
 
 ---
 
-## 🚀 Performance & Scaling
+## 🌐 API Endpoints — Full List
 
-### For Development (Single User)
-- Current setup handles fine
-- SQLite is sufficient
-- No scaling concerns
+All routes are registered as Flask blueprints (`app/routes/`) with `url_prefix='/api'` except `student` (root-level `/student/...`) and `management` (`url_prefix='/api/system'`).
 
-### For Production (10+ Students)
-1. **Use PostgreSQL** instead of SQLite for concurrent access
-2. **Add Redis** for caching submission results
-3. **Implement rate limiting** to prevent API abuse
-4. **Monitor container resources** (CPU/memory limits)
-5. **Set container timeout** (currently 24 hours)
+**Assignments** (`app/routes/assignments.py`)
+| Method | Path |
+|---|---|
+| GET/POST | `/api/assignments` |
+| GET | `/api/assignments/<id>` |
+| GET | `/api/assignments/<id>/candidates` |
 
-### Optimization Tips
-- Use Claude Haiku for faster evaluation (trade speed for capability)
-- Cache evaluation results for identical submissions
-- Implement submission queue if evaluation latency becomes issue
-- Use connection pooling for database
+**Links** (`app/routes/links.py`)
+| Method | Path |
+|---|---|
+| POST | `/api/generate-link/<assignment_id>` |
 
----
+**Challenges** (`app/routes/challenges.py`)
+| Method | Path |
+|---|---|
+| POST | `/api/generate-challenge` |
+| GET | `/api/challenges` |
+| GET | `/api/challenges/<id>` |
+| POST | `/api/challenges/<id>/publish` |
+| DELETE | `/api/challenges/<id>` (soft-delete) |
+| GET | `/api/challenges/<id>/candidates` (sort_by/order, dimension_averages, visibility floor) |
+| GET | `/api/challenges/meta/options` |
 
-## 📝 Code Style & Conventions
+**Submissions** (`app/routes/submissions.py`)
+| Method | Path |
+|---|---|
+| GET | `/api/submissions` |
+| POST | `/api/submit-with-files/<link_id>` |
+| GET | `/api/submission/<id_or_link>` |
+| GET | `/api/session-logs/<submission_id>` |
+| POST | `/api/submissions/<id>/flag` |
+| POST | `/api/submissions/<id>/override` |
 
-### Current Patterns
-- **Database**: Raw SQL with sqlite3 (no ORM needed for current use)
-- **Validation**: Pydantic models for request/response schemas
-- **Error Handling**: FastAPI HTTPException with appropriate status codes
-- **Async**: Uses BackgroundTasks for container cleanup (not async/await)
-- **Logging**: Basic print statements (consider upgrading to logging module)
+**Analytics** (`app/routes/analytics.py`)
+| Method | Path |
+|---|---|
+| GET | `/api/analytics/overrides` |
 
-### Naming Conventions
-- Tables: snake_case (assignments, session_links)
-- Functions: snake_case (init_db, evaluate_code_with_claude)
-- Classes: PascalCase (AssignmentClient)
-- IDs: UUIDs for assignments, random strings for link_ids
+**Student** (`app/routes/student.py`)
+| Method | Path |
+|---|---|
+| GET | `/student/<link_id>` |
+| GET | `/student/preview/<challenge_id>` (employer preview, no Docker) |
 
----
+**System / Management** (`app/routes/management.py`)
+| Method | Path |
+|---|---|
+| GET | `/api/system/status`, `/api/system/health` |
+| POST | `/api/system/cleanup-old`, `/api/system/cleanup-all` |
+| GET | `/api/system/containers/<id>/info`, `/api/system/containers/<id>/logs` |
+| POST | `/api/system/containers/<id>/restart`, `/api/system/containers/<id>/stop` |
 
-## 🔒 Security Considerations
-
-### Current Implementation (Development)
-- ✅ CORS open to all origins (for testing)
-- ✅ No authentication required
-- ✅ API key in environment (not hardcoded)
-
-### For Production
-- 🔐 **Add authentication**: JWT tokens or session-based auth
-- 🔐 **Restrict CORS**: Only allow your frontend domain
-- 🔐 **Use HTTPS**: SSL/TLS for all connections
-- 🔐 **Rate limiting**: Prevent abuse
-- 🔐 **Input validation**: Already done via Pydantic
-- 🔐 **Container security**: Run as non-root, set resource limits
-- 🔐 **Database encryption**: Encrypt sensitive data at rest
-- 🔐 **Secrets management**: Use env vars or secrets service (not hardcoded)
-
-See README.md and INSTALLATION.md for detailed security hardening guide.
-
----
-
-## 📖 Documentation Reference
-
-- **README.md**: Features, installation, usage examples, API reference
-- **INSTALLATION.md**: Cloud deployment (AWS, Kubernetes), database setup, monitoring
-- **PROJECT_STRUCTURE.md**: Detailed file descriptions and data flow diagrams
-- **GETTING_STARTED.md**: Quick summary and learning path
+Full request/response shapes and worked examples: `docs/API_REFERENCE.md`.
 
 ---
 
-## 🎓 Code Entry Points
+## 🔒 Architecture Constraints — Read Before Writing Any Code
 
-**For Changes to Backend Logic**:
-- Modify endpoints in `main.py` (lines 200-1000+)
-- Change evaluation logic in `evaluate_code_with_claude()` (lines 900+)
-
-**For Changes to Teacher Dashboard**:
-- Edit `frontend.html` (HTML, CSS, JavaScript form handling)
-
-**For Changes to Student Environment**:
-- Modify `Dockerfile` (packages, tools, pre-configuration)
-- Pre-load different starter code in main.py container creation
-
-**For Adding APIs**:
-- Create new endpoint function with `@app.post()` or `@app.get()`
-- Add Pydantic model if needed for request validation
-- Database operations use raw SQL with sqlite3
-
-**For Database Changes**:
-- Modify table definitions in `init_db()` function
-- Update corresponding INSERT/SELECT queries
-- Consider migration strategy for existing deployments
+- **SQLite only** — no Postgres, no Redis, no ORM. Raw SQL. `CREATE TABLE IF NOT EXISTS` is the migration strategy; `ALTER TABLE` guarded by `try/except sqlite3.OperationalError` (never a bare `except Exception`).
+- **LLM via OpenRouter only** — `LLMService.chat()` is the single call surface. Model swap via `OPENROUTER_MODEL`. Do not import `anthropic` or `openai` SDKs directly outside `llm_service.py`.
+- **Docker via subprocess CLI** — the `docker` Python SDK is incompatible with `requests>=2.32` on Python 3.14 in this environment. All Docker operations go through `DockerService` in `docker_service.py`, which shells out to the `docker` CLI.
+- **Container port range: 7100–7900** — ports below 7000 (especially 6000–6007) are Chrome-blocked and will silently fail to load in-browser.
+- **Score thresholds are Python-enforced** — never trust Claude's own threshold/recommendation output; always recompute from the raw dimension scores.
+- **Visibility floor** — never hide a candidate from the ranked list; un-evaluated candidates sort last, not omitted.
+- **`score_overrides` is append-only** — never UPDATE or DELETE.
+- **`hire_evaluations.composite_score`/`.recommendation` are read-only after creation** — an override only ever writes the `override_*` columns.
+- **No `sandbox` attribute on the student iframe** — code-server needs service workers.
+- **`db_service` is an import-time singleton per route module** — see the trap section above.
+- **ASCII only in `print()`/logging strings** — Windows console is cp1252.
+- **Tests: `LLMService.chat` is always mocked** — never let a test reach a real OpenRouter call or a real Docker daemon.
 
 ---
 
-## ⚡ Quick Reference Commands
+## 📖 Related Documentation
 
-```bash
-# Start all services
-docker-compose up --build
-
-# Restart specific service
-docker-compose restart backend
-
-# View logs
-docker-compose logs -f backend
-
-# Run one-off command in container
-docker-compose exec backend python -c "import sqlite3; ..."
-
-# Stop services
-docker-compose down
-
-# Full cleanup (removes volumes)
-docker-compose down -v
-
-# Access API docs
-curl http://localhost:8000/docs
-
-# Test API health
-curl http://localhost:8000/api/health
-
-# View SQLite database
-sqlite3 assignments.db ".tables"
-sqlite3 assignments.db "SELECT * FROM assignments LIMIT 5;"
-```
+- `AGENT.md` — current sprint/story state, deferred production gaps, session continuity (read this first, every session)
+- `docs/ARCHITECTURE.md` — system diagrams and data-flow detail
+- `docs/API_REFERENCE.md` — full endpoint documentation with request/response examples
+- `docs/PROJECT_REQUIREMENTS.md` — product requirements and scoring rubric detail
+- `docs/FOLDER_STRUCTURE.md` — annotated directory tree
+- `_bmad-output/planning-artifacts/epics-and-stories.md` — full epic/story backlog spec
+- `_bmad-output/implementation-artifacts/deferred-work.md` — every known-but-unfixed issue, with file/line references
 
 ---
 
-## 🔧 Setup & Dependencies
-
-**System Requirements**:
-- Docker & Docker Compose
-- Python 3.8+ (for local development)
-- Anthropic API key
-- 2GB+ available disk space
-
-**Installation**:
-```bash
-# Clone or navigate to project directory
-cd project2025/coding_platforms
-
-# Install Python dependencies (optional, for local testing)
-pip install -r requirements.txt
-
-# Set API key
-export ANTHROPIC_API_KEY="sk-ant-..."
-
-# Start services
-docker-compose up --build
-```
-
----
-
-**Last Updated**: May 2026  
-**Version**: 1.0.0
+**Last updated**: 2026-07-03 (rewritten to match the actual Flask/`app/`-package architecture — the previous version described a FastAPI/`main.py` design that no longer exists in this codebase)

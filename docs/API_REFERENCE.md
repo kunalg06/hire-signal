@@ -1,588 +1,245 @@
 # API Reference
 
-Complete documentation of all REST API endpoints for the AI Engineering Assessment & Evaluation Platform.
+All endpoints are served by the Flask app in `app/`, mounted at `http://localhost:8000` in development (`PORT` env var). No authentication exists yet — see `CLAUDE.md`'s Security Considerations before deploying anywhere non-local.
 
----
-
-## 📋 Table of Contents
+## Table of Contents
 
 1. [Assignments](#assignments)
-2. [Student Links](#student-links)
-3. [Submissions](#submissions)
-4. [Session Logs](#session-logs)
-5. [Student Portal](#student-portal)
-6. [System Management](#system-management)
+2. [Links](#links)
+3. [Challenges](#challenges)
+4. [Submissions](#submissions)
+5. [Analytics](#analytics)
+6. [Student](#student)
+7. [System / Management](#system--management)
 
 ---
 
 ## Assignments
 
-### Create Assignment
+`app/routes/assignments.py`
 
-**POST** `/api/assignments`
+### `GET /api/assignments`
+List all assignments.
 
-Create a new coding assignment for students.
+```json
+[
+  {"id": "uuid", "title": "...", "description": "...", "starter_code": "...", "evaluation_criteria": "..."}
+]
+```
+
+### `POST /api/assignments`
+Create an assignment. `title` and `evaluation_criteria` are required; `challenge_id` is optional (links the assignment to a catalog challenge).
+
+```json
+{"title": "Rate Limiter Bug", "description": "...", "starter_code": "...", "evaluation_criteria": "...", "challenge_id": "uuid-or-null"}
+```
+→ `201` with the created row, or `400 {"detail": "..."}` if required fields are missing.
+
+### `GET /api/assignments/<id>`
+→ `200` with the assignment, or `404 {"detail": "Assignment not found"}`.
+
+### `GET /api/assignments/<id>/candidates`
+Simple per-assignment candidate ranking (rank assigned by insertion order of `get_candidates_for_assignment`, no `sort_by`/`order` query params — for the fuller-featured version, see `GET /api/challenges/<id>/candidates` below). → `404` if the assignment doesn't exist.
+
+---
+
+## Links
+
+`app/routes/links.py`
+
+### `POST /api/generate-link/<assignment_id>`
+Spins up a candidate container (or degrades gracefully if Docker is unavailable) and returns a shareable access link.
+
+```json
+{"link_id": "...", "assignment_id": "...", "access_url": "http://localhost:7123", "vscode_port": 7123, "expires_at": "2026-07-04T12:00:00"}
+```
+→ `201`, or `404 {"detail": "Assignment not found"}`.
+
+If the assignment is linked to a challenge with `ai_assistance_mode='guarded'`, a `CLAUDE.md` restriction file is also injected into the container's `/workspace` (see `docs/ARCHITECTURE.md`).
+
+---
+
+## Challenges
+
+`app/routes/challenges.py`
+
+### `POST /api/generate-challenge`
+Generates a market-aligned coding challenge via the LLM and persists it to the catalog as an unpublished draft.
 
 **Request:**
 ```json
 {
-  "title": "Temperature Converter",
-  "description": "Write a function to convert Celsius to Fahrenheit",
-  "evaluation_criteria": "Function should correctly convert temperature values",
-  "starter_code": "def celsius_to_fahrenheit(celsius):\n    pass"
+  "problem_statement": "Fix a leaking rate limiter under concurrent load",
+  "difficulty": "easy | medium | hard",
+  "challenge_type": "bug_fix | feature_extension | refactoring | optimization",
+  "skill_area": "api_integration | rate_limiting | data_pipeline | llm_usage | server_monitoring | game_logic",
+  "ai_assistance_mode": "guarded | unguarded"
 }
 ```
+`problem_statement` and `difficulty` are required; the rest default to `feature_extension` / `api_integration` / `unguarded`.
 
-**Response:** `201 Created`
+**Response `200`:**
 ```json
 {
-  "id": "uuid-string",
-  "title": "Temperature Converter",
-  "description": "Write a function to convert Celsius to Fahrenheit",
-  "evaluation_criteria": "Function should correctly convert temperature values",
-  "starter_code": "def celsius_to_fahrenheit(celsius):\n    pass",
-  "created_at": "2026-06-17T10:30:00Z"
+  "title": "...", "description": "...", "evaluation_criteria": "...", "starter_code": "...",
+  "challenge_id": "uuid-or-null",
+  "challenge_type": "bug_fix", "skill_area": "api_integration",
+  "difficulty": "medium", "ai_assistance_mode": "unguarded",
+  "is_published": false
 }
 ```
 
-**Error Responses:**
-- `400 Bad Request` - Missing required fields (title, evaluation_criteria)
-- `500 Internal Server Error` - Database error
+**Errors:**
+- `400` — a required field is missing or an enum value is invalid (checked *before* any LLM call is made)
+- `500` — the LLM call failed, or its response was unparseable / missing a required field
+- `challenge_id: null` in a `200` response — generation succeeded but persistence failed (logged server-side, doesn't fail the request)
 
----
+### `GET /api/challenges`
+List published challenges (`is_published=1` only). Optional filters: `challenge_type`, `skill_area`, `difficulty`, `ai_assistance_mode` (each validated against its enum, `400` if invalid).
 
-### Get Assignment
+```json
+{"challenges": [...], "total": 3, "filters": {"challenge_type": null, "skill_area": null, "difficulty": null, "ai_assistance_mode": null}}
+```
 
-**GET** `/api/assignments/{assignment_id}`
+### `GET /api/challenges/<id>`
+Fetch a single challenge regardless of publish status. → `200` or `404 {"error": "Challenge not found"}`.
 
-Retrieve details of a specific assignment.
+### `POST /api/challenges/<id>/publish`
+→ `200 {"challenge_id": "...", "is_published": true, "message": "..."}` or `404`.
 
-**Response:** `200 OK`
+### `DELETE /api/challenges/<id>`
+Soft-delete (`is_published = -1`, row is never actually removed). → `200 {"challenge_id": "...", "is_published": false, "message": "..."}` or `404`.
+
+### `GET /api/challenges/<id>/candidates`
+The full-featured candidate ranking endpoint — sortable, with visibility-floor and dimension averages.
+
+**Query params:**
+- `sort_by` — `composite_score` (default) or any of the 8 dimension keys (`problem_decomposition`, `first_principles_thinking`, `creative_problem_solving`, `iteration_quality`, `debugging_with_ai`, `architecture_decisions`, `communication_clarity`, `token_efficiency`)
+- `order` — `desc` (default) or `asc`
+
+**Response `200`:**
 ```json
 {
-  "id": "uuid-string",
-  "title": "Temperature Converter",
-  "description": "Write a function to convert Celsius to Fahrenheit",
-  "evaluation_criteria": "Function should correctly convert temperature values",
-  "starter_code": "def celsius_to_fahrenheit(celsius):\n    pass",
-  "created_at": "2026-06-17T10:30:00Z"
+  "challenge_id": "...",
+  "candidates": [
+    {
+      "rank": 1, "submission_id": "...", "link_id": "...", "submitted_at": "...",
+      "score": 85.0, "composite_score": 85.0, "hire_recommendation": "strong_hire",
+      "recommendation_rationale": "...", "is_evaluated": true,
+      "dimensions": {"problem_decomposition": {"score": 90, "rationale": "..."}, "...": "..."}
+    }
+  ],
+  "total": 3,
+  "dimension_averages": {"problem_decomposition": 78.5, "...": "..."}
 }
 ```
 
-**Error Responses:**
-- `404 Not Found` - Assignment does not exist
-- `500 Internal Server Error` - Database error
+**Behavior notes:**
+- Un-evaluated candidates always sort **last**, in both `asc` and `desc` — they're never hidden, just ranked lowest.
+- `dimension_averages` is computed only over evaluated candidates; it's `{}` (not missing) when zero candidates have been evaluated.
+- Only submissions whose assignment's `challenge_id` matches are included — candidates from other challenges never leak in.
 
----
+→ `404 {"error": "Challenge not found"}` if the challenge doesn't exist; `400` for an invalid `sort_by`/`order` (checked *after* the existence check, so a nonexistent challenge with bad query params still 404s).
 
-## Student Links
-
-### Generate Student Link
-
-**POST** `/api/generate-link/{assignment_id}`
-
-Generate a unique access link for a student to work on an assignment. Creates an isolated Docker container.
-
-**Parameters:**
-- `assignment_id` (path) - UUID of the assignment
-
-**Response:** `201 Created`
-```json
-{
-  "link_id": "random-string-key",
-  "assignment_id": "uuid-string",
-  "access_url": "http://localhost:8000/student/random-string-key",
-  "code_server_url": "http://localhost:6000",
-  "port": 6000,
-  "expires_at": "2026-06-18T10:30:00Z",
-  "container_id": "docker-container-id"
-}
-```
-
-**Error Responses:**
-- `404 Not Found` - Assignment does not exist
-- `500 Internal Server Error` - Docker or database error
-- `503 Service Unavailable` - No available ports (max 1000 containers)
+### `GET /api/challenges/meta/options`
+Returns the valid enum value sets for challenge creation/filtering — useful for populating a form's dropdowns without hardcoding the lists client-side.
 
 ---
 
 ## Submissions
 
-### Submit Code for Evaluation
+`app/routes/submissions.py`
 
-**POST** `/api/submit-with-files/{link_id}`
+### `GET /api/submissions`
+List all submissions.
 
-Submit code for evaluation. Collects files from the student's container and starts background evaluation.
+### `POST /api/submit-with-files/<link_id>`
+Candidate submits their workspace files. Triggers 8-dimension evaluation on a background thread — this endpoint returns immediately with the `submission_id`; poll `GET /api/submission/<id>` for results.
 
-**Parameters:**
-- `link_id` (path) - Student access link ID
+### `GET /api/submission/<id_or_link>`
+Accepts either a `submission_id` or a `link_id` (falls back to the most recent submission for that link if the direct lookup misses). Returns the full submission plus its evaluation state.
 
-**Request Body:** `{}` (empty JSON object)
-
-**Response:** `202 Accepted`
 ```json
 {
-  "submission_id": "uuid-string",
-  "status": "submitted",
-  "message": "Evaluation in progress...",
-  "session_logs_count": 3
-}
-```
-
-**Error Responses:**
-- `404 Not Found` - Link does not exist
-- `400 Bad Request` - Link expired
-- `500 Internal Server Error` - Container or database error
-
-**Background Processing:**
-- Extracts files from container (solution.py, instructions.md, session.log)
-- Parses Claude CLI session logs
-- Sends code to Claude API for evaluation
-- Calculates scores: code quality (40%) + approach (30%) + efficiency (30%)
-- Updates submission with results (5-10 seconds)
-
----
-
-### Get Submission Results
-
-**GET** `/api/submission/{submission_id}`
-
-Retrieve evaluation results for a submitted assignment.
-
-**Parameters:**
-- `submission_id` (path) - UUID of the submission
-
-**Response:** `200 OK`
-```json
-{
-  "submission_id": "uuid-string",
-  "link_id": "link-key",
-  "assignment_id": "uuid-string",
-  "assignment_title": "Temperature Converter",
-  "submitted_at": "2026-06-17T10:45:00Z",
-  "evaluated_at": "2026-06-17T10:47:00Z",
-  "score": 82.5,
-  "feedback": "Good solution with clear logic...\n\n---SCORING BREAKDOWN---\nCode Quality: 85/100\nApproach: 75/30\nEfficiency: 25/30\nFinal Score: 82.5/100",
-  "evaluation_result": {
-    "code_quality_score": 85,
-    "approach_score": 25,
-    "efficiency_score": 25,
-    "combined_score": 82.5,
-    "claude_feedback": "..."
-  },
-  "instructions_md": "...",
-  "claude_logs": "..."
-}
-```
-
-**Pending Evaluation Response:** `200 OK`
-```json
-{
-  "submission_id": "uuid-string",
-  "status": "pending",
-  "message": "Evaluation in progress..."
-}
-```
-
-**Error Responses:**
-- `404 Not Found` - Submission does not exist
-- `500 Internal Server Error` - Database error
-
----
-
-## Session Logs
-
-### Get Session Logs
-
-**GET** `/api/session-logs/{submission_id}`
-
-Retrieve all Claude CLI session logs for a submission (showing student's problem-solving process).
-
-**Parameters:**
-- `submission_id` (path) - UUID of the submission
-
-**Response:** `200 OK`
-```json
-[
-  {
-    "log_id": "uuid-string",
-    "submission_id": "uuid-string",
-    "timestamp": "2026-06-17T10:40:00Z",
-    "interaction_type": "claude_evaluate",
-    "prompt": "Evaluate this solution: def celsius_to_fahrenheit...",
-    "response_summary": "Code quality: Good, handles edge cases",
-    "file_changes_count": 2
-  },
-  {
-    "log_id": "uuid-string",
-    "submission_id": "uuid-string",
-    "timestamp": "2026-06-17T10:42:00Z",
-    "interaction_type": "claude_evaluate",
-    "prompt": "Fix the conversion formula",
-    "response_summary": "Use formula: (C * 9/5) + 32",
-    "file_changes_count": 1
-  }
-]
-```
-
-**Error Responses:**
-- `404 Not Found` - Submission does not exist
-- `500 Internal Server Error` - Database error
-
----
-
-## Student Portal
-
-### Get Student Dashboard
-
-**GET** `/student/{link_id}`
-
-Access the student portal with embedded code-server IDE and assignment details.
-
-**Parameters:**
-- `link_id` (path) - Student access link ID
-
-**Response:** `200 OK` (HTML page with):
-- Assignment details (title, description, evaluation criteria, starter code)
-- Embedded code-server iframe at port specified
-- Submit button to collect code
-- Results panel (hidden until submission)
-- Session timer countdown
-
-**Error Responses:**
-- `404 Not Found` - Link does not exist
-- `400 Bad Request` - Link expired
-- `500 Internal Server Error` - Database error
-
----
-
-## System Management
-
-All Docker and system operations integrated into Flask API. No need for separate docker commands.
-
-### Get System Status
-
-**GET** `/api/system/status`
-
-Get current system health status including Docker daemon and running containers.
-
-**Response:** `200 OK`
-```json
-{
-  "timestamp": "2026-06-17T10:50:00Z",
-  "status": "healthy",
-  "services": {
-    "docker": "running"
-  },
-  "containers": {
-    "total_running": 3,
-    "assignment_containers": 3,
-    "containers": [
-      {
-        "id": "abc123def456",
-        "name": "assignment-uuid-1",
-        "status": "running",
-        "ports": {
-          "8080/tcp": [{"HostIp": "0.0.0.0", "HostPort": "6000"}]
-        }
-      }
-    ]
-  },
-  "errors": []
-}
-```
-
-**Error Responses:**
-- `200 OK` with error array - Docker daemon error (still returns status)
-
----
-
-### Health Check
-
-**GET** `/api/system/health`
-
-Comprehensive health check of all system components (Docker, database, Anthropic API).
-
-**Response:** `200 OK`
-```json
-{
-  "timestamp": "2026-06-17T10:50:00Z",
-  "overall": "healthy",
-  "components": {
-    "docker": "healthy",
-    "database": "healthy",
-    "anthropic_api": "ready"
+  "submission_id": "...", "link_id": "...", "assignment_id": "...", "code": "...",
+  "submitted_at": "...", "score": 85.0, "feedback": "...", "assignment_title": "...",
+  "is_flagged": false, "flag_reason": null, "flag_by": null, "flagged_at": null,
+  "instructions_md": "...", "claude_logs": "No Claude session logs available",
+  "dimensions": {"problem_decomposition": {"score": 90, "rationale": "...", "scoring_method": "llm_judge"}},
+  "hire_evaluation": {
+    "composite_score": 85.0, "hire_recommendation": "strong_hire",
+    "dimension_weights": {"problem_decomposition": 0.15, "...": "..."},
+    "recommendation_rationale": "...", "is_overridden": false,
+    "override_recommendation": null, "override_rationale": null, "evaluated_at": "..."
   }
 }
 ```
 
-**Component Status Values:**
-- `"healthy"` - Component is working correctly
-- `"unhealthy: {error}"` - Component has error
-- `"ready"` - Component initialized and ready
-- `"error: {error}"` - Component initialization failed
+`hire_evaluation` is `null` if scoring hasn't completed yet — this is what the frontend polls on. → `404 {"detail": "Submission not found"}`.
+
+### `GET /api/session-logs/<submission_id>`
+Raw parsed Claude Code CLI session log for a submission.
+
+### `POST /api/submissions/<id>/flag`
+Marks a submission for manual review. `reason` is required.
+
+```json
+{"reason": "Suspicious timing pattern", "flagged_by": "recruiter@example.com"}
+```
+→ `200 {"submission_id": "...", "is_flagged": true, "flag_reason": "...", "flag_by": "...", "message": "..."}`, `400` if `reason` missing, `404` if the submission doesn't exist.
+
+### `POST /api/submissions/<id>/override`
+Applies a human override to the AI hire recommendation. Both `override_recommendation` and `override_rationale` are required; `override_recommendation` must be a valid recommendation value.
+
+```json
+{"override_recommendation": "hire", "override_rationale": "Strong communication, weak on iteration but coachable"}
+```
+→ `200` on success. `400` if fields are missing/invalid, `404` if the submission doesn't exist, `409` if no evaluation exists yet to override.
+
+**Important:** the original AI `composite_score`/`recommendation` in `hire_evaluations` are **never modified** — only `override_recommendation`/`override_rationale`/`is_overridden` columns are written. Every successful override also appends a permanent row to the append-only `score_overrides` table.
 
 ---
 
-### Clean Up Old Containers
+## Analytics
 
-**POST** `/api/system/cleanup-old?hours=24`
+`app/routes/analytics.py`
 
-Remove containers older than specified hours. Default: 24 hours.
-
-**Query Parameters:**
-- `hours` (optional) - Age threshold in hours (default: 24)
-
-**Response:** `200 OK`
-```json
-{
-  "cleaned": 2,
-  "failed": 0,
-  "errors": []
-}
-```
-
-**Error Responses:**
-- `200 OK` with errors array - Docker error (still returns cleanup count)
+### `GET /api/analytics/overrides`
+Calibration analytics over the append-only `score_overrides` log: total override count, breakdown by override direction, the 20 most recent overrides, and a pattern summary (directions with ≥20% share, only computed once there are ≥10 total overrides).
 
 ---
 
-### Clean Up All Containers
+## Student
 
-**POST** `/api/system/cleanup-all`
+`app/routes/student.py`
 
-Force remove all assignment containers immediately (use with caution).
+### `GET /student/<link_id>`
+The candidate's actual assessment workspace — an iframe embedding their code-server container plus a submission UI (verification nudge, real-time polling, results view).
 
-**Response:** `200 OK`
-```json
-{
-  "removed": 5,
-  "failed": 0,
-  "errors": []
-}
-```
-
-**Error Responses:**
-- `200 OK` with errors array - Docker error (still returns removal count)
+### `GET /student/preview/<challenge_id>`
+Employer-facing preview of what a candidate would see for a given challenge — **no Docker container is spun up**. Renders the challenge-template content (title/description/criteria/starter code), not a live assignment instance, so it can diverge slightly if an employer edits an assignment after generating it from this challenge.
 
 ---
 
-### Get Container Info
+## System / Management
 
-**GET** `/api/system/containers/{container_id}/info`
+`app/routes/management.py` (all under `/api/system`)
 
-Get detailed information about a specific container.
-
-**Parameters:**
-- `container_id` (path) - Docker container ID (full or short form)
-
-**Response:** `200 OK`
-```json
-{
-  "id": "abc123def456",
-  "name": "assignment-uuid-1",
-  "status": "running",
-  "created": "2026-06-17T10:30:00Z",
-  "ports": {
-    "8080/tcp": [{"HostIp": "0.0.0.0", "HostPort": "6000"}]
-  },
-  "image": "code-server-http:latest",
-  "memory_stats": {
-    "usage": 128000000,
-    "max_usage": 256000000,
-    "limit": 1073741824
-  }
-}
-```
-
-**Error Responses:**
-- `404 Not Found` - Container does not exist
-- `400 Bad Request` - Docker error
+| Method | Path | Purpose |
+|---|---|---|
+| GET | `/api/system/status` | Aggregate system status |
+| GET | `/api/system/health` | Health check |
+| POST | `/api/system/cleanup-old` | Remove containers idle past a threshold |
+| POST | `/api/system/cleanup-all` | Remove all managed containers |
+| GET | `/api/system/containers/<id>/info` | Single container detail |
+| GET | `/api/system/containers/<id>/logs` | Container logs |
+| POST | `/api/system/containers/<id>/restart` | Restart a container |
+| POST | `/api/system/containers/<id>/stop` | Stop a container |
 
 ---
 
-### Get Container Logs
+## Related docs
 
-**GET** `/api/system/containers/{container_id}/logs?lines=100`
-
-Retrieve logs from a specific container.
-
-**Parameters:**
-- `container_id` (path) - Docker container ID
-- `lines` (query, optional) - Number of log lines to return (default: 100)
-
-**Response:** `200 OK`
-```json
-{
-  "logs": "stdout/stderr output from container...\n..."
-}
-```
-
----
-
-### Restart Container
-
-**POST** `/api/system/containers/{container_id}/restart`
-
-Restart a specific running container.
-
-**Parameters:**
-- `container_id` (path) - Docker container ID
-
-**Response:** `200 OK`
-```json
-{
-  "success": true,
-  "container_id": "abc123def456",
-  "status": "restarted"
-}
-```
-
-**Error Responses:**
-- `400 Bad Request` - Container restart failed
-- `404 Not Found` - Container does not exist
-
----
-
-### Stop Container
-
-**POST** `/api/system/containers/{container_id}/stop`
-
-Stop a running container.
-
-**Parameters:**
-- `container_id` (path) - Docker container ID
-
-**Response:** `200 OK`
-```json
-{
-  "success": true,
-  "container_id": "abc123def456",
-  "status": "stopped"
-}
-```
-
-**Error Responses:**
-- `400 Bad Request` - Container stop failed
-- `404 Not Found` - Container does not exist
-
----
-
-## Global Error Responses
-
-All endpoints may return these errors:
-
-### 400 Bad Request
-Invalid request parameters or validation failure
-```json
-{
-  "error": "Invalid parameter: {detail}"
-}
-```
-
-### 401 Unauthorized
-Authentication failed (future feature)
-```json
-{
-  "error": "Unauthorized"
-}
-```
-
-### 404 Not Found
-Resource does not exist
-```json
-{
-  "error": "Resource not found"
-}
-```
-
-### 500 Internal Server Error
-Server-side error
-```json
-{
-  "error": "Internal server error: {detail}"
-}
-```
-
-### 503 Service Unavailable
-Service temporarily unavailable (e.g., Docker unreachable)
-```json
-{
-  "error": "Service unavailable: {detail}"
-}
-```
-
----
-
-## Rate Limiting
-
-Rate limiting is applied to prevent abuse:
-- **Limit:** 5 requests per 60 seconds per client IP
-- **Headers:** `X-RateLimit-Limit`, `X-RateLimit-Remaining`, `X-RateLimit-Reset`
-
----
-
-## Authentication
-
-Currently, no authentication is required (development mode). For production:
-- Implement JWT token-based authentication
-- Validate tokens on all protected endpoints
-- Use HTTPS for all API calls
-
----
-
-## Example Workflows
-
-### Complete Student Submission Workflow
-
-```bash
-# 1. Create assignment
-ASSIGNMENT_ID=$(curl -s -X POST http://localhost:8000/api/assignments \
-  -H "Content-Type: application/json" \
-  -d '{"title":"Test","description":"Test","evaluation_criteria":"Works"}' \
-  | jq -r '.id')
-
-# 2. Generate student link
-LINK=$(curl -s -X POST http://localhost:8000/api/generate-link/$ASSIGNMENT_ID)
-LINK_ID=$(echo $LINK | jq -r '.link_id')
-PORT=$(echo $LINK | jq -r '.port')
-
-# 3. Student accesses portal
-open http://localhost:8000/student/$LINK_ID
-
-# 4. Student submits code
-SUBMISSION=$(curl -s -X POST http://localhost:8000/api/submit-with-files/$LINK_ID \
-  -H "Content-Type: application/json" \
-  -d '{}')
-SUBMISSION_ID=$(echo $SUBMISSION | jq -r '.submission_id')
-
-# 5. Poll for results (wait 5-10 seconds)
-curl http://localhost:8000/api/submission/$SUBMISSION_ID
-
-# 6. View session logs
-curl http://localhost:8000/api/session-logs/$SUBMISSION_ID
-```
-
-### System Management Workflow
-
-```bash
-# Check system health
-curl http://localhost:8000/api/system/health
-
-# Get running containers
-curl http://localhost:8000/api/system/status
-
-# View specific container logs
-curl http://localhost:8000/api/system/containers/{id}/logs
-
-# Clean up old containers
-curl -X POST http://localhost:8000/api/system/cleanup-old?hours=24
-
-# Stop a problematic container
-curl -X POST http://localhost:8000/api/system/containers/{id}/stop
-```
-
----
-
-**Last Updated:** June 2026  
-**API Version:** 1.0.0
+- `docs/ARCHITECTURE.md` — system design and the four core request/response flows
+- `CLAUDE.md` — dev workflow and architecture constraints
+- `AGENT.md` — current implementation state, including known gaps in some of the behavior documented above (see its "Notable open production gaps" section)

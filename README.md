@@ -4,7 +4,8 @@
 
 ![Python](https://img.shields.io/badge/python-3.11+-blue.svg)
 ![Flask](https://img.shields.io/badge/flask-3.0-green.svg)
-![Status](https://img.shields.io/badge/status-phase%201%20complete-brightgreen.svg)
+![Status](https://img.shields.io/badge/status-all%20epics%20complete-brightgreen.svg)
+![Tests](https://img.shields.io/badge/tests-64%20passing-brightgreen.svg)
 ![AI Beta](https://img.shields.io/badge/AI%20scoring-experimental-orange.svg)
 
 ---
@@ -13,7 +14,7 @@
 
 Coding interviews have changed. Candidates now use AI tools on the job — and the best ones know *how* to collaborate with AI effectively, not just write code from scratch. hire-signal evaluates that skill.
 
-Employers post a challenge. Candidates solve it in an isolated browser-based VS Code environment with full Claude AI access. The platform records every Claude interaction, extracts the final workspace, and evaluates the candidate across **8 AI-collaboration dimensions** — producing a structured hire recommendation.
+Employers post a challenge. Candidates solve it in an isolated browser-based VS Code environment with Claude Code CLI access. The platform records every Claude interaction, extracts the final workspace, and evaluates the candidate across **8 AI-collaboration dimensions** — producing a structured hire recommendation.
 
 > **AI Beta Notice:** Scores are experimental signals. Human judgment holds final authority. Always review before making hiring decisions.
 
@@ -27,7 +28,7 @@ Employer creates challenge
 Generates unique link per candidate
         ↓
 Candidate codes in isolated Docker container
-(browser VS Code + Claude AI access)
+(browser VS Code + Claude Code CLI access)
         ↓
 On submit: full workspace snapshot extracted
         ↓
@@ -35,14 +36,12 @@ On submit: full workspace snapshot extracted
         ↓
 Hire recommendation: strong_hire / hire / select / pass
         ↓
-Employer compares candidates side-by-side
+Employer compares candidates side-by-side, flags/overrides as needed
 ```
 
 ---
 
 ## 8-Dimension Scoring Framework
-
-Inspired by the ArcEval framework for AI-era engineering assessment:
 
 | # | Dimension | Weight | What It Measures |
 |---|-----------|--------|-----------------|
@@ -64,7 +63,7 @@ Inspired by the ArcEval framework for AI-era engineering assessment:
 | 🟡 Select | ≥ 55 |
 | ⛔ Pass | < 55 |
 
-Thresholds are Python-enforced — never delegated to Claude.
+Thresholds are **Python-enforced** — the LLM's own claimed composite/recommendation is always discarded and recomputed from the raw per-dimension scores. See `_bmad-output/implementation-artifacts/deferred-work.md` for one known edge case where the composite display and recommendation can briefly disagree near a boundary.
 
 ---
 
@@ -84,21 +83,24 @@ Thresholds are Python-enforced — never delegated to Claude.
 ### AI Assistance Modes
 
 - **Unguarded** — Claude can give full solutions. Employer assesses *how* the candidate uses AI.
-- **Guarded** — Claude restricted to guidance only. Candidate must reason independently.
+- **Guarded** — Claude Code CLI is asked (via an injected `CLAUDE.md`) to restrict itself to conceptual guidance. **This is honor-system enforcement only** — a candidate with shell access can bypass it. Accepted as current scope; see `docs/PROJECT_REQUIREMENTS.md`.
 
 ---
 
-## Features (Phase 1)
+## Features
 
 - **AI challenge generation** — describe a scenario, get a market-aligned coding challenge with starter code and evaluation rubric
-- **Challenge catalog** — review, publish, and reuse challenges across assessments
-- **Isolated candidate environments** — one Docker container per candidate with browser VS Code + Claude
-- **Full workspace capture** — entire `/workspace` extracted before container cleanup
-- **8-dimension evaluation** — single Claude call scores all dimensions with per-dimension rationales
-- **Candidate comparison** — ranked table of all candidates for an assignment with dimension breakdowns and cohort averages
+- **Challenge catalog** — review, publish, and reuse challenges across assessments; 10 curated challenges seeded across the type/skill matrix
+- **Isolated candidate environments** — one Docker container per candidate with browser VS Code + Claude Code CLI (graceful degradation without Docker — links still generate)
+- **Full workspace capture** — entire `/workspace` extracted before container cleanup, with a text-only filter and 50KB cap
+- **8-dimension evaluation** — single Claude call scores all dimensions with per-dimension rationales; all 8 keys always present even on a partial LLM response
 - **Employer dashboard** — 5-tab UI: Generate · Catalog · Link · Results · Compare
 - **SVG radar chart** — visual 8-dimension profile per candidate
-- **Human override policy** — AI scores inform, never decide
+- **Side-by-side comparison** — overlaid radar + butterfly chart for two candidates
+- **Human override & flag workflow** — flag any submission for review; override any hire recommendation with a required rationale; every override permanently logged to an append-only calibration table
+- **Visibility floor** — un-evaluated candidates always sort last, never hidden
+- **Employer preview** — see the candidate-facing view of a challenge without spinning up Docker
+- **64-test suite** — 8-dimension scoring, workspace extraction, hire-threshold boundaries, candidate ranking, and challenge generation, all runnable with no LLM key or Docker daemon
 
 ---
 
@@ -106,9 +108,9 @@ Thresholds are Python-enforced — never delegated to Claude.
 
 ### Prerequisites
 
-- Docker & Docker Compose
 - Python 3.11+
-- Anthropic API key — [console.anthropic.com](https://console.anthropic.com)
+- An [OpenRouter](https://openrouter.ai/keys) API key (LLM calls are routed through OpenRouter, not the Anthropic API directly)
+- Docker (**optional** — the app runs and the employer dashboard is fully usable without it; only live candidate containers require it)
 
 ### Setup
 
@@ -120,8 +122,7 @@ cd hire-signal
 pip install -r requirements.txt
 
 # Configure environment
-cp .env.example .env
-# Edit .env and set ANTHROPIC_API_KEY=sk-ant-...
+echo "OPENROUTER_API_KEY=sk-or-your-key-here" > .env
 
 # Run the platform
 python run.py
@@ -129,11 +130,23 @@ python run.py
 
 Open `http://localhost:8000` in your browser.
 
-### Docker (full stack with candidate containers)
+### Running the test suite
+
+```bash
+python -m pytest tests/ -v
+```
+
+64 tests, no API key or Docker daemon required — every LLM/Docker call is mocked.
+
+### Docker (for live candidate containers)
+
+Build the candidate-container image and run the app normally — this is the actual dev path, **not** `docker-compose` (see `docs/ARCHITECTURE.md` for why `docker/docker-compose.yml` is a legacy/unused orchestration file in this codebase):
 
 ```bash
 cd docker
-docker-compose up --build
+docker build -f Dockerfile.codeserver -t coding-platform-student:latest .
+cd ..
+python run.py
 ```
 
 ---
@@ -163,7 +176,7 @@ POST /api/challenges/{challenge_id}/publish
 
 ```bash
 POST /api/assignments
-{ "title": "...", "description": "...", "evaluation_criteria": "...", "starter_code": "..." }
+{ "title": "...", "description": "...", "evaluation_criteria": "...", "starter_code": "...", "challenge_id": "..." }
 
 POST /api/generate-link/{assignment_id}
 # Returns link_id — share with candidate
@@ -171,7 +184,7 @@ POST /api/generate-link/{assignment_id}
 
 ### 4. Candidate Submits
 
-Candidate accesses their isolated VS Code environment, works with Claude, and clicks Submit. The platform captures the full workspace and starts evaluation.
+Candidate accesses their isolated VS Code environment, works with Claude, and submits. The platform captures the full workspace and starts evaluation in the background — the candidate's browser polls for results every 3 seconds.
 
 ### 5. View Results
 
@@ -180,11 +193,17 @@ GET /api/submission/{submission_id}
 # Returns: composite_score, hire_recommendation, 8 dimension scores + rationales
 ```
 
-### 6. Compare All Candidates
+### 6. Compare, Flag, and Override
 
 ```bash
-GET /api/assignments/{assignment_id}/candidates
-# Returns: ranked list with per-dimension scores and cohort averages
+GET /api/challenges/{challenge_id}/candidates?sort_by=composite_score&order=desc
+# Ranked list, sortable by composite or any dimension, un-evaluated candidates always last
+
+POST /api/submissions/{submission_id}/flag
+{ "reason": "Suspicious timing pattern" }
+
+POST /api/submissions/{submission_id}/override
+{ "override_recommendation": "hire", "override_rationale": "Strong communication, coachable" }
 ```
 
 ---
@@ -197,20 +216,22 @@ GET /api/assignments/{assignment_id}/candidates
 | `GET` | `/api/challenges` | List published challenges (filterable) |
 | `GET` | `/api/challenges/{id}` | Get single challenge |
 | `POST` | `/api/challenges/{id}/publish` | Publish to catalog |
-| `DELETE` | `/api/challenges/{id}` | Remove from catalog |
+| `DELETE` | `/api/challenges/{id}` | Soft-remove from catalog |
+| `GET` | `/api/challenges/{id}/candidates` | Ranked candidates, sortable, dimension averages, visibility floor |
 | `GET` | `/api/challenges/meta/options` | Valid enum values |
 | `POST` | `/api/assignments` | Create assignment |
 | `GET` | `/api/assignments` | List all assignments |
 | `GET` | `/api/assignments/{id}` | Get assignment |
-| `GET` | `/api/assignments/{id}/candidates` | Ranked candidates with 8-dim scores |
 | `POST` | `/api/generate-link/{assignment_id}` | Generate candidate link |
 | `POST` | `/api/submit-with-files/{link_id}` | Submit workspace for evaluation |
 | `GET` | `/api/submission/{id}` | Get results (score, dimensions, hire verdict) |
-| `GET` | `/api/session-logs/{submission_id}` | Claude interaction log |
+| `POST` | `/api/submissions/{id}/flag` | Flag a submission for manual review |
+| `POST` | `/api/submissions/{id}/override` | Override the AI hire recommendation |
+| `GET` | `/api/analytics/overrides` | Override calibration analytics |
+| `GET` | `/student/preview/{challenge_id}` | Employer preview of the candidate view (no Docker) |
 | `GET` | `/api/system/health` | System health check |
-| `GET` | `/api/system/status` | Container and database status |
 
-Full documentation: [docs/API_REFERENCE.md](docs/API_REFERENCE.md)
+Full documentation with request/response examples: [docs/API_REFERENCE.md](docs/API_REFERENCE.md)
 
 ---
 
@@ -220,31 +241,36 @@ Full documentation: [docs/API_REFERENCE.md](docs/API_REFERENCE.md)
 hire-signal/
 ├── app/
 │   ├── routes/
-│   │   ├── assignments.py      # Assignment CRUD + candidate comparison
-│   │   ├── challenges.py       # Challenge generation + catalog
-│   │   ├── links.py            # Candidate link generation
-│   │   ├── submissions.py      # Submission + 8-dim evaluation pipeline
-│   │   ├── student.py          # Candidate workspace portal
+│   │   ├── assignments.py      # Assignment CRUD + simple per-assignment candidate list
+│   │   ├── challenges.py       # Challenge generation + catalog + full candidate ranking
+│   │   ├── links.py            # Candidate link generation + container spin-up
+│   │   ├── submissions.py      # Submission + 8-dim evaluation pipeline + flag/override
+│   │   ├── student.py          # Candidate workspace portal + employer preview
+│   │   ├── analytics.py        # Override calibration analytics
 │   │   └── management.py       # System health & container management
 │   ├── services/
 │   │   ├── evaluation_service.py   # Claude evaluation + challenge generation
-│   │   ├── database_service.py     # All DB operations
-│   │   ├── docker_service.py       # Container lifecycle
+│   │   ├── database_service.py     # All DB operations (raw SQL, no ORM)
+│   │   ├── llm_service.py          # OpenRouter wrapper — the only LLM call surface
+│   │   ├── docker_service.py       # Container lifecycle via subprocess `docker` CLI
 │   │   ├── session_log_service.py  # Claude interaction log parsing
 │   │   └── management_service.py   # System monitoring
 │   ├── models/
-│   │   └── database.py         # SQLite schema (8 tables)
+│   │   └── database.py         # SQLite schema (10 tables)
 │   └── utils/
 │       └── helpers.py          # ID generation, validation, rate limiting
 ├── templates/
-│   └── frontend.html           # Employer dashboard (5-tab SPA)
-├── docker/                     # Dockerfiles + compose
-├── docs/                       # Architecture, API reference, requirements
-├── scripts/                    # Setup scripts
+│   └── frontend.html           # Employer dashboard (5-tab SPA, single file)
+├── tests/                      # 64 pytest tests, no LLM key or Docker daemon required
+├── docker/                     # Dockerfiles (Dockerfile.codeserver is the one that matters)
+├── docs/                       # Architecture, API reference, requirements, folder structure
+├── scripts/
+│   └── seed_challenges.py      # Seeds 10 curated challenges
 ├── tools/
 │   └── client.py               # Python SDK for API access
-├── _bmad-output/               # Planning artifacts (epics & stories)
-├── AGENT.md                    # Session continuity for AI-assisted dev
+├── _bmad-output/               # Planning + implementation artifacts (epics, stories, deferred work)
+├── AGENT.md                    # Session continuity for AI-assisted dev — read this first
+├── CLAUDE.md                   # Dev guide: architecture constraints, debugging, customization
 ├── run.py                      # Flask entry point
 └── requirements.txt
 ```
@@ -253,18 +279,22 @@ hire-signal/
 
 ## Database Schema
 
-8 SQLite tables auto-created on startup:
+10 SQLite tables, auto-created on startup (`CREATE TABLE IF NOT EXISTS` + guarded `ALTER TABLE` migrations):
 
 | Table | Purpose |
 |---|---|
-| `assignments` | Challenge definitions |
+| `assignments` | Challenge definitions, optionally linked to a catalog challenge |
 | `session_links` | Candidate links → containers |
-| `submissions` | Submitted workspaces |
+| `submissions` | Submitted workspaces, with flag status |
 | `submission_files` | Individual files per submission |
 | `session_logs` | Claude interaction log per session |
+| `dimension_scores` | Per-dimension score + rationale per submission |
+| `hire_evaluations` | Composite score + hire verdict (+ human override) |
 | `challenges` | Challenge catalog (draft/published) |
-| `dimension_scores` | Per-dimension scores per submission |
-| `hire_evaluations` | Composite score + hire verdict |
+| `comparison_sessions` | Saved side-by-side comparison views |
+| `score_overrides` | Append-only human-override audit log |
+
+Full schema detail: [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md)
 
 ---
 
@@ -272,35 +302,25 @@ hire-signal/
 
 ```env
 # Required
-ANTHROPIC_API_KEY=sk-ant-...
+OPENROUTER_API_KEY=sk-or-...
 
-# Optional
+# Optional (defaults shown)
+OPENROUTER_MODEL=anthropic/claude-haiku-4-5
 FLASK_ENV=development
 PORT=8000
-DB_PATH=assignments.db
-CLAUDE_MODEL=claude-haiku-4-5-20251001
+DB_PATH=data/assignments.db
 DOCKER_HOST=                          # auto-detected
+DOCKER_IMAGE=coding-platform-student:latest
 SECRET_KEY=                           # auto-generated in dev
 ```
 
+Note: candidate container ports (7100-7900) are a hardcoded constant in `app/config.py`, not an env var.
+
 ---
 
-## Roadmap
+## Status
 
-### Phase 1 — Complete ✅
-- 8-dimension scoring engine
-- Market-aligned challenge generation and catalog
-- Isolated Docker candidate environments
-- Employer dashboard with radar chart and comparison view
-- Hire recommendation (strong_hire / hire / select / pass)
-
-### Phase 2 — Planned
-- Human override UI with audit log
-- Side-by-side candidate radar overlay (butterfly chart)
-- Structured candidate workspace panels + verification nudge before submit
-- Guarded mode Claude restrictions in-container
-- Seed catalog with 10 curated challenges
-- Unit test coverage
+**All planned epics complete** as of July 2026 — challenge generation, 8-dimension scoring, candidate comparison and hiring workflow, employer dashboard, student experience, and test coverage. See `AGENT.md` for the current implementation snapshot and `_bmad-output/implementation-artifacts/deferred-work.md` for known, deliberately-deferred gaps (nothing blocking, all documented with file/line references).
 
 ---
 
@@ -309,7 +329,7 @@ SECRET_KEY=                           # auto-generated in dev
 AI scores are one signal in a hiring decision, not the decision itself. The platform is designed around this principle:
 
 - Hiring managers can flag and override any score
-- Every override is logged for calibration
+- Every override is logged for calibration in an append-only table — the original AI verdict is never modified
 - **Visibility floor**: score affects rank only — all candidates remain visible regardless of score
 - AI Beta banner is always shown on the employer dashboard
 
@@ -317,17 +337,14 @@ AI scores are one signal in a hiring decision, not the decision itself. The plat
 
 ## Tech Stack
 
-- **Backend**: Python 3.11, Flask 3.0, SQLite
-- **AI**: Anthropic Claude (haiku-4-5 default, configurable)
-- **Candidate environment**: Docker, code-server (browser VS Code)
-- **Frontend**: Vanilla HTML/CSS/JS — no framework dependency
+- **Backend**: Python 3.11, Flask 3.0, SQLite (no ORM)
+- **AI**: Claude models via OpenRouter (Haiku 4.5 default, swappable via `OPENROUTER_MODEL`)
+- **Candidate environment**: Docker, code-server (browser VS Code), Claude Code CLI
+- **Frontend**: Vanilla HTML/CSS/JS — no framework, no build step
+- **Testing**: pytest, 64 tests, fully mocked LLM/Docker
 
 ---
 
 ## License
 
 MIT
-
----
-
-*Built with Claude Code · Phase 1 complete July 2026*

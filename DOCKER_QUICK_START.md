@@ -46,7 +46,7 @@ bash setup-docker.sh
 ### Manual Build
 ```bash
 cd docker
-docker build -f Dockerfile -t coding-platform-student:latest .
+docker build -f Dockerfile.codeserver -t coding-platform-student:latest .
 ```
 
 The build takes 5-10 minutes on first run (installs dependencies).
@@ -83,12 +83,12 @@ Flask starts on http://localhost:8000
    - Click "Save as Assignment"
    - Copy the assignment ID
 
-4. **Generate Student Link**:
+4. **Generate Candidate Link**:
    - Paste assignment ID
    - Click "Generate Link"
-   - You'll see a port number (e.g., 6000-6999)
+   - You'll see a port number (e.g., 7100-7900)
 
-5. **Access Student Portal**:
+5. **Access Candidate Portal**:
    - Click the generated URL
    - On right side: code-server iframe should load
    - On left side: assignment description
@@ -118,7 +118,7 @@ Flask starts on http://localhost:8000
 
 ### Error: "image not found: coding-platform-student:latest"
 **Solution:**
-- Build the image: `docker build -f docker/Dockerfile -t coding-platform-student:latest .`
+- Build the image: `docker build -f docker/Dockerfile.codeserver -t coding-platform-student:latest .`
 - Verify: `docker images | grep coding-platform`
 
 ### Container fails to start
@@ -138,7 +138,7 @@ docker container prune
 **Solution:**
 ```bash
 # Find process using port
-lsof -i :6000  # or specific port
+lsof -i :7100  # or specific port
 
 # Kill process
 kill -9 <PID>
@@ -148,20 +148,20 @@ kill -9 <PID>
 
 ## How It Works
 
-1. **Link Generation**: When teacher generates a link, system:
-   - Creates Docker container from `coding-platform-student:latest` image
-   - Assigns port from 6000-6999 range
-   - Stores container ID and port in database
+1. **Link Generation**: When an employer generates a link, the system:
+   - Creates a Docker container from the `coding-platform-student:latest` image
+   - Assigns a free port from the 7100-7900 range (ports below 7000 are Chrome-blocked, so this range is fixed — not configurable via env var)
+   - Stores container ID and port in the database
 
-2. **Student Access**: Student visits link, system:
-   - Loads assignment details on left
-   - Embeds code-server iframe on right on assigned port
-   - Student codes in browser-based VS Code
+2. **Candidate Access**: Candidate visits the link, system:
+   - Loads assignment details on the left
+   - Embeds the code-server iframe on the right on the assigned port
+   - Candidate codes in browser-based VS Code
 
-3. **File Collection**: When student submits:
-   - Backend connects to container via Docker API
-   - Extracts `solution.py` and other files
-   - Also retrieves Claude interaction logs
+3. **File Collection**: When the candidate submits:
+   - Backend runs `docker cp` against the container (via subprocess, not the Docker Python SDK)
+   - Extracts workspace files (text files only, 50KB cap)
+   - Also retrieves Claude Code CLI session logs
 
 4. **Evaluation**: Claude evaluates:
    - Code quality and correctness
@@ -172,9 +172,9 @@ kill -9 <PID>
 ## Ports
 
 - **Flask API**: 8000 (localhost:8000)
-- **Code-server instances**: 6000-6999 (one per student)
+- **Code-server instances**: 7100-7900 (one per candidate)
 
-Each student gets unique port for their code-server instance.
+Each candidate gets a unique port for their code-server instance.
 
 ## Performance
 
@@ -205,7 +205,7 @@ Each student gets unique port for their code-server instance.
 - Container resource limits
 - Monitoring and logging
 
-See SYSTEM_STATUS.md for production checklist.
+See `docs/PROJECT_REQUIREMENTS.md` for what's explicitly out of scope for the current dev-phase deployment.
 
 ## Next Steps
 
