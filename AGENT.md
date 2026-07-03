@@ -36,9 +36,9 @@ This is NOT an educational platform. It is a **hiring tool** for employers to ev
 
 ---
 
-## Current Implementation State (~90% complete)
+## Current Implementation State (100% of planned sprint complete)
 
-### ✅ Done — Epics 1–6 + Phase 1 integration fixes
+### ✅ Done — Epics 1–7 + Phase 1 integration fixes (entire sprint complete as of 2026-07-03)
 
 #### Epic 1 — Bug Fixes (done 2026-06-30)
 - Story 1.1 — efficiency score bug fixed (`submissions.py`)
@@ -74,6 +74,14 @@ This is NOT an educational platform. It is a **hiring tool** for employers to ev
 - Story 6.3 — real polling: `startPolling()` in `student.py` hits `GET /api/submission/<id>` every 3s until `evaluated_at` set, 60s timeout; composite_score falsy-fallback fixed (0-score edge case)
 - Story 6.4 — `GET /student/preview/<challenge_id>` preview route (no Docker); review fixed hire_data/hire_evaluation key mismatch, unescaped rec label, NaN guard, missing-submissionId guard. AC3 reworded: challenge-template preview, not assignment-fidelity
 - Story 6.5 — guarded mode: `inject_workspace_files()` writes `/workspace/CLAUDE.md` for guarded challenges; `links.py` resolves `ai_assistance_mode` via `challenge_id`. Smoke-tested end-to-end through real containers. Guarded mode is honor-system-only (accepted v1 scope). chmod-skip-on-CLAUDE.md-failure bug fixed
+
+#### Epic 7 — Test Coverage (done 2026-07-03)
+- Story 7.1 — `tests/test_score_8_dimensions.py` (12 tests): all-8-keys guarantee, Python-weighted composite vs plain mean, Claude-supplied composite/recommendation overridden, failure safety, ```json fence stripping. Found: fence-stripping only handles the exact ```json prefix
+- Story 7.2 — `tests/test_extract_container_files.py` (16 tests): Docker unavailable → `{}`, text-only filter, 50KB cap + truncation boundaries, symlinks/dotfiles excluded. Found: `workspace` param ignored by path normalization; cap counts raw bytes but stores decoded text
+- Story 7.3 — `tests/test_hire_recommendation_thresholds.py` (10 tests): all 4 threshold boundaries (85/70/55) probed from both sides via a uniform-score trick, plus a non-uniform real-weighting boundary check. Found: `hire_recommendation` branches on pre-round composite while `composite_score` stores post-round — the two can visibly disagree near a boundary
+- Story 7.4 — `tests/test_candidates_endpoint.py` (13 tests, first integration test): real Flask test client + isolated SQLite. **Found and fixed a real DB-pollution hazard**: `app.routes.challenges.db_service` is an import-time singleton pointed at the real `data/assignments.db`, completely independent of `create_app(config_name)` — both the blueprint singleton and `create_app()`'s own internal schema-init call had to be neutralized (monkeypatch + `create_app("testing")`). Zero production gaps found
+- Story 7.5 — `tests/test_generate_challenge_endpoint.py` (13 tests): combines 7.1's LLM-mock + 7.4's DB-isolation patterns for `POST /api/generate-challenge`. Found: non-string field values (e.g. `{"difficulty": null}`) crash with unhandled `AttributeError` instead of a clean 400 (confirmed empirically — the exception genuinely propagates under Flask's `TESTING=True`)
+- **Total: 64 tests, root `conftest.py` bootstraps `sys.path`. All code-reviewed via 3-layer adversarial process (Blind Hunter + Edge Case Hunter + Acceptance Auditor) with patches applied and findings triaged into deferred-work.md.**
 
 #### Epic 4 — Candidate Comparison & Hiring Workflow (done 2026-07-02)
 
@@ -119,23 +127,31 @@ This is NOT an educational platform. It is a **hiring tool** for employers to ev
 
 ### ❌ Not Built Yet (backlog)
 
-| Story | Description |
-|---|---|
-| 7.5 | Unit test `generate_challenge` with new params (invalid enum → 400) |
+**None.** Every story in `sprint-status.yaml` (Epics 1-7) is `done`. The sprint is complete.
+
+Known gaps are tracked in `_bmad-output/implementation-artifacts/deferred-work.md`, not as backlog stories — see "Notable open production gaps" below.
 
 ---
 
 ## Next Session — Start Here
 
-**Workflow state:** Epics 1–6 are all `done`. Epic 7 (Test Coverage) `in-progress`: Stories 7.1–7.4 done (dev + code review 2026-07-03; `tests/test_score_8_dimensions.py`, `tests/test_extract_container_files.py`, `tests/test_hire_recommendation_thresholds.py`, `tests/test_candidates_endpoint.py` — 51 tests total, root `conftest.py` bootstraps the test infra). Only Story 7.5 remains — the last story in the entire sprint.
+**Workflow state: the entire sprint is `done`.** All 7 epics, all stories in `sprint-status.yaml`, are `done` as of 2026-07-03. There is no `ready-for-dev` or `in-progress` story anywhere.
 
-**Next action:** Run `/bmad-create-story` to create the next story file.
-- Last backlog story: **Story 7.5** (`7-5-unit-test-generate_challenge-with-new-params`)
+**Next action:** There is no next story to auto-discover. Options for a future session:
+1. Run `/bmad-correct-course` or talk to the PM agent to scope a Phase 2 / new epic if there's new product direction.
+2. Pick up one of the deferred production gaps below as a new story (each is a real, confirmed issue, not speculative).
+3. Run retrospectives (`epic-1-retrospective` through `epic-7-retrospective` are all `optional`, none done yet) if a look-back is wanted.
+4. Nothing is blocking — the codebase is in a clean, fully-tested, fully-committed state.
 
-**Then:** Run `/bmad-dev-story` to implement it. After 7.5, the sprint is complete — no more stories in `sprint-status.yaml`.
+**Notable open production gaps** (all logged in detail in `deferred-work.md`, none fixed — each was found during Epic 7's test-writing and deliberately left as "test documents current behavior, doesn't fix it" per each story's scope):
+- `score_8_dimensions()` fence-stripping only handles the exact ` ```json ` prefix — a bare ` ``` ` fence or prose-wrapped JSON from the LLM silently zero-scores a real candidate (7.1) — **highest product impact of the group**
+- `extract_container_files()` ignores its own `workspace` parameter when stripping path prefixes; its 50KB cap counts raw bytes but stores decoded text (7.2)
+- `hire_recommendation` branches on the pre-round composite while `composite_score` stores the post-round value — the two can visibly disagree near a threshold, e.g. a stored `85.0` labeled `"hire"` (7.3)
+- `POST /api/generate-challenge` returns 200 even when catalog persistence silently fails, with no `persisted` field for the client to detect it (7.5)
+- `POST /api/generate-challenge` (and likely sibling routes) crash with an unhandled `AttributeError` on non-string JSON field values (e.g. `{"difficulty": null}`) instead of a clean 400 (7.5)
+- Guarded mode (`ai_assistance_mode='guarded'`) is honor-system-only — a candidate with shell access can delete/edit the injected `CLAUDE.md` (6.5), accepted as v1 scope
 
-**Note:** Story 7.4 work (tests, story artifact) is **uncommitted** as of 2026-07-03 (Stories 7.1–7.3 were already committed as `09ca7e4`, `80696b9`, `5bba224`). Notable deferred production findings from 7.1–7.3: fence-stripping in `score_8_dimensions` only handles the exact ```json prefix (7.1); `extract_container_files` ignores its `workspace` parameter and its 50KB cap counts raw bytes but stores decoded text (7.2); `hire_recommendation` branches on the pre-round composite while `composite_score` stores the post-round value, so the two can visibly disagree near a boundary (7.3) — see deferred-work.md. **Story 7.4 found zero production gaps** (all findings were in the test file itself, notably that a naive `create_app()` call would have touched the real dev DB — fixed, not deferred).
-- Story 7.4 also leaves a harmless side-effect file `data/test_assignments.db` (created by `create_app("testing")`'s own schema init) — not a bug, expected from `TestingConfig`.
+**Housekeeping note:** Story 7.4 introduced a harmless side-effect file `data/test_assignments.db` (created by `create_app("testing")`'s own schema init) — not a bug, expected from `TestingConfig`, safe to delete or ignore.
 
 ---
 

@@ -35,7 +35,7 @@
 # - Dev moves story to 'review', then runs code-review (fresh context, different LLM recommended)
 
 generated: "2026-07-02"
-last_updated: "2026-07-03"  # updated: Story 7.4 done (dev + code review); next backlog story is 7.5 (last one)
+last_updated: "2026-07-03"  # updated: Story 7.5 done (dev + code review) — Epic 7 complete, entire sprint done
 project: coding_platforms
 project_key: NOKEY
 tracking_system: file-system
@@ -217,9 +217,11 @@ development_status:
 
   # ─────────────────────────────────────────────────────────────────────────
   # Epic 7 — Test Coverage
-  # In progress as of 2026-07-03 (Story 7.1 created).
+  # Done as of 2026-07-03 — all 5 stories (7.1-7.5) implemented and code
+  # reviewed. 64 tests total across 4 new test files + root conftest.py.
+  # This completes the entire sprint (Epics 1-7 all done).
   # ─────────────────────────────────────────────────────────────────────────
-  epic-7: in-progress
+  epic-7: done
 
   7-1-unit-test-score_8_dimensions: done
   # Implemented + code review complete 2026-07-03: tests/test_score_8_dimensions.py
@@ -245,7 +247,11 @@ development_status:
   # its own internal init_db() call — fixed via create_app("testing"). Zero production
   # gaps found (first Epic 7 story with no deferred-work.md entry).
 
-  7-5-unit-test-generate_challenge-with-new-params: backlog
-  # Invalid enum → 400, valid → persisted to challenges table
+  7-5-unit-test-generate_challenge-with-new-params: done
+  # Implemented + code review complete 2026-07-03: tests/test_generate_challenge_endpoint.py
+  # (13 tests after 10 review patches, 64 total suite green). Reused 7.4's DB-isolation
+  # fixtures + 7.1's LLM-mock pattern. Fixed a vacuous "nothing persisted" assertion caught
+  # independently by all 3 review layers. Found + deferred a genuine production gap: non-string
+  # field values crash with unhandled AttributeError instead of clean 400.
 
   epic-7-retrospective: optional
