@@ -35,7 +35,7 @@
 # - Dev moves story to 'review', then runs code-review (fresh context, different LLM recommended)
 
 generated: "2026-07-02"
-last_updated: "2026-07-03"  # updated: Story 7.3 done (dev + code review); next backlog story is 7.4
+last_updated: "2026-07-03"  # updated: Story 7.4 done (dev + code review); next backlog story is 7.5 (last one)
 project: coding_platforms
 project_key: NOKEY
 tracking_system: file-system
@@ -238,8 +238,12 @@ development_status:
   # (10 tests after 3 review patches, 38 total suite green). 1 production gap deferred:
   # composite_score/hire_recommendation can visibly disagree near a boundary (round-after-compare)
 
-  7-4-integration-test-get-api-challenges-id-candidates: backlog
-  # Empty list, sorted results, dimension_averages always present
+  7-4-integration-test-get-api-challenges-id-candidates: done
+  # Implemented + code review complete 2026-07-03: tests/test_candidates_endpoint.py
+  # (13 tests after 11 review patches, 51 total suite green). Review caught and fixed
+  # a real test-isolation gap: create_app() with no config touched the real DB via
+  # its own internal init_db() call — fixed via create_app("testing"). Zero production
+  # gaps found (first Epic 7 story with no deferred-work.md entry).
 
   7-5-unit-test-generate_challenge-with-new-params: backlog
   # Invalid enum → 400, valid → persisted to challenges table

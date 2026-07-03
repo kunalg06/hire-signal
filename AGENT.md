@@ -121,21 +121,21 @@ This is NOT an educational platform. It is a **hiring tool** for employers to ev
 
 | Story | Description |
 |---|---|
-| 7.4 | Integration test `GET /api/challenges/<id>/candidates` |
 | 7.5 | Unit test `generate_challenge` with new params (invalid enum → 400) |
 
 ---
 
 ## Next Session — Start Here
 
-**Workflow state:** Epics 1–6 are all `done`. Epic 7 (Test Coverage) `in-progress`: Stories 7.1–7.3 done (dev + code review 2026-07-03; `tests/test_score_8_dimensions.py`, `tests/test_extract_container_files.py`, `tests/test_hire_recommendation_thresholds.py` — 38 tests total, root `conftest.py` bootstraps the test infra). Stories 7.4–7.5 remain (7.4 is the first integration test, not unit test — heavier setup expected).
+**Workflow state:** Epics 1–6 are all `done`. Epic 7 (Test Coverage) `in-progress`: Stories 7.1–7.4 done (dev + code review 2026-07-03; `tests/test_score_8_dimensions.py`, `tests/test_extract_container_files.py`, `tests/test_hire_recommendation_thresholds.py`, `tests/test_candidates_endpoint.py` — 51 tests total, root `conftest.py` bootstraps the test infra). Only Story 7.5 remains — the last story in the entire sprint.
 
 **Next action:** Run `/bmad-create-story` to create the next story file.
-- First backlog story in sprint order: **Story 7.4** (`7-4-integration-test-get-api-challenges-id-candidates`)
+- Last backlog story: **Story 7.5** (`7-5-unit-test-generate_challenge-with-new-params`)
 
-**Then:** Run `/bmad-dev-story` to implement it.
+**Then:** Run `/bmad-dev-story` to implement it. After 7.5, the sprint is complete — no more stories in `sprint-status.yaml`.
 
-**Note:** Story 7.3 work (tests, story artifact, deferred-work entries) is **uncommitted** as of 2026-07-03 (Stories 7.1 and 7.2 were already committed as `09ca7e4` and `80696b9`). Notable deferred production findings so far: fence-stripping in `score_8_dimensions` only handles the exact ```json prefix (7.1); `extract_container_files` ignores its `workspace` parameter and its 50KB cap counts raw bytes but stores decoded text (7.2); `hire_recommendation` branches on the pre-round composite while `composite_score` stores the post-round value, so the two can visibly disagree near a boundary (7.3) — see deferred-work.md.
+**Note:** Story 7.4 work (tests, story artifact) is **uncommitted** as of 2026-07-03 (Stories 7.1–7.3 were already committed as `09ca7e4`, `80696b9`, `5bba224`). Notable deferred production findings from 7.1–7.3: fence-stripping in `score_8_dimensions` only handles the exact ```json prefix (7.1); `extract_container_files` ignores its `workspace` parameter and its 50KB cap counts raw bytes but stores decoded text (7.2); `hire_recommendation` branches on the pre-round composite while `composite_score` stores the post-round value, so the two can visibly disagree near a boundary (7.3) — see deferred-work.md. **Story 7.4 found zero production gaps** (all findings were in the test file itself, notably that a naive `create_app()` call would have touched the real dev DB — fixed, not deferred).
+- Story 7.4 also leaves a harmless side-effect file `data/test_assignments.db` (created by `create_app("testing")`'s own schema init) — not a bug, expected from `TestingConfig`.
 
 ---
 
