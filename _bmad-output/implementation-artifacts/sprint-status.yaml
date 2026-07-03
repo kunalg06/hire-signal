@@ -35,7 +35,7 @@
 # - Dev moves story to 'review', then runs code-review (fresh context, different LLM recommended)
 
 generated: "2026-07-02"
-last_updated: "2026-07-02"  # updated: Story 5.3 created, epics 1/3 closed
+last_updated: "2026-07-03"  # updated: Story 6.5 done — Epic 6 complete (all stories 6.1-6.5 done)
 project: coding_platforms
 project_key: NOKEY
 tracking_system: file-system
@@ -156,7 +156,7 @@ development_status:
   # Stories 5.1, 5.2, 5.4, 5.5 complete (done in Phase 1 frontend pass).
   # Story 5.3 (butterfly chart / radar overlay) deferred to Phase 2.
   # ─────────────────────────────────────────────────────────────────────────
-  epic-5: in-progress
+  epic-5: done
 
   5-1-challenge-results-board-candidate-grid: done
   # Tab 4 in frontend.html — assignment dropdown, candidate grid,
@@ -167,9 +167,10 @@ development_status:
   # 8-spoke SVG radar — abbreviated labels (PD/FP/CP/IQ/DA/AD/CC/TE),
   # mini (80px) in grid, full (300px) in detail panel
 
-  5-3-side-by-side-candidate-comparison-view: ready-for-dev
+  5-3-side-by-side-candidate-comparison-view: done
   # Story created 2026-07-02; frontend-only (templates/frontend.html), no backend changes
   # Overlaid radar + butterfly chart + expandable rationale + cross-assignment warning modal
+  # Implemented + code review complete 2026-07-02; 4 major issues fixed
 
   5-4-hire-recommendation-surface: done
   # Hire badge (green/blue/amber/gray), AI narrative paragraph,
@@ -186,23 +187,31 @@ development_status:
   # Story 6.1 complete (workspace injection uses three-panel format).
   # Stories 6.2–6.5 deferred to Phase 2.
   # ─────────────────────────────────────────────────────────────────────────
-  epic-6: in-progress
+  epic-6: done
 
   6-1-structured-challenge-display-in-student-view: done
   # instructions.md injected with Scenario / Your Task / Evaluation Criteria
   # three-panel format via DockerService.inject_workspace_files()
 
-  6-2-verification-nudge-before-submission: backlog
-  # "Did you run the code?" modal before submit not yet built
+  6-2-verification-nudge-before-submission: done
+  # Implemented + code review complete 2026-07-02; wording trimmed to exact spec; 3 pre-existing items deferred
 
-  6-3-real-polling-instead-of-fixed-2s-wait: backlog
-  # GET /api/submission/<id> every 3s until evaluated_at populated not yet built
+  6-3-real-polling-instead-of-fixed-2s-wait: done
+  # Implemented 2026-07-03; startPolling() + showSubmittedResults/Polling/Timeout in student.py; 3s interval / 60s timeout
+  # Code review 2026-07-03: composite_score falsy-fallback fixed (0-score edge case)
 
-  6-4-preview-as-student: backlog
-  # GET /student/preview/<challenge_id> — no-Docker preview not yet built
+  6-4-preview-as-student: done
+  # GET /student/preview/<challenge_id> — preview mode route added to student.py; all 7 ACs satisfied
+  # Code review 2026-07-03: fixed hire_data/hire_evaluation key mismatch (polling never completed),
+  # unescaped rec label, NaN score guard, missing-submissionId guard. AC3 reworded via party-mode
+  # panel decision (challenge-template preview, not assignment-fidelity); 7 items deferred.
 
-  6-5-guarded-mode-claude-restrictions: backlog
-  # System prompt injection for guarded ai_assistance_mode not yet built
+  6-5-guarded-mode-claude-restrictions: done
+  # Implemented 2026-07-03: inject_workspace_files() writes /workspace/CLAUDE.md for guarded
+  # challenges; links.py resolves ai_assistance_mode via challenge_id (index 6, verified live).
+  # Smoke-tested end-to-end through real Docker containers via the Flask route.
+  # Code review 2026-07-03: chmod-skip-on-CLAUDE.md-failure bug fixed (verified live);
+  # guarded mode confirmed honor-system-only, accepted as v1 scope, 5 items deferred.
 
   epic-6-retrospective: optional
 

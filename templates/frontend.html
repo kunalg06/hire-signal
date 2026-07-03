@@ -226,6 +226,18 @@
         details summary { cursor: pointer; color: #667eea; font-weight: 600; font-size: 0.9em; user-select: none; }
         details summary:hover { text-decoration: underline; }
         details .detail-body { margin-top: 10px; }
+
+        /* ── Comparison Tab Additions ── */
+        .selected-row { background: #f0f0ff; }
+        .compare-checkbox { width: 16px; height: 16px; cursor: pointer; accent-color: #667eea; }
+        #cmpCompareBtn:disabled { opacity: 0.4; cursor: not-allowed; }
+        .butterfly-chart { width: 100%; }
+        .butterfly-row { display:flex; align-items:center; gap:8px; padding:7px 0; border-bottom:1px solid #f4f4fb; }
+        .butterfly-half { flex:1; display:flex; }
+        .butterfly-half-a { justify-content:flex-end; }
+        .butterfly-half-b { justify-content:flex-start; }
+        .butterfly-bar { height:18px; border-radius:3px; min-width:2px; }
+        .center-divider { width:2px; background:#ddd; flex-shrink:0; height:22px; align-self:center; }
     </style>
 </head>
 <body>
@@ -626,6 +638,9 @@
             <div class="input-group" style="margin-bottom:4px;">
                 <input type="text" id="compareAssignId" placeholder="Enter assignment ID to compare all candidates">
                 <button class="btn" onclick="loadCandidates()">Load Candidates</button>
+                <button class="btn" id="cmpCompareBtn" disabled
+                    style="margin-left:8px;"
+                    onclick="renderComparisonPanel(..._cmpSelected)">Compare Selected (0/2)</button>
             </div>
             <div style="font-size:0.82em; color:#aaa; margin-top:6px;">
                 All candidates who submitted to this assignment will appear ranked by composite score.
@@ -642,6 +657,7 @@
                     <table class="compare-table" id="compareTable">
                         <thead>
                             <tr>
+                                <th style="width:36px;"></th>
                                 <th>#</th>
                                 <th>Submission</th>
                                 <th>Submitted</th>
@@ -668,8 +684,65 @@
                 <h2>Cohort Averages</h2>
                 <div id="avgBars"></div>
             </div>
+
+            <!-- Side-by-side comparison view -->
+            <div id="comparisonPanel" style="display:none; margin-top:16px;">
+                <div style="display:flex; align-items:center; gap:12px; margin-bottom:12px; padding:0 4px;">
+                    <div id="cmpPanelTitle" style="font-weight:700; color:#333; font-size:1.1em;"></div>
+                    <button class="btn" style="background:#f5f5f5;color:#555;font-size:0.85em;margin-left:auto;"
+                        onclick="closeComparisonPanel()">&#10005; Close</button>
+                </div>
+                <div class="grid-2">
+                    <div class="card" style="display:flex;flex-direction:column;align-items:center;">
+                        <h2 style="align-self:flex-start;">8-Dimension Overlay</h2>
+                        <svg id="cmpRadarSvg" width="300" height="300" viewBox="0 0 300 300" style="overflow:visible;"></svg>
+                        <div style="display:flex;gap:20px;margin-top:10px;font-size:0.82em;color:#555;">
+                            <span><svg width="12" height="12" style="vertical-align:middle;margin-right:4px;"><rect width="12" height="12" fill="#667eea" rx="2"/></svg>Candidate A</span>
+                            <span><svg width="12" height="12" style="vertical-align:middle;margin-right:4px;"><rect width="12" height="12" fill="#f06292" rx="2"/></svg>Candidate B</span>
+                        </div>
+                    </div>
+                    <div class="card">
+                        <h2>Score Summary</h2>
+                        <div id="cmpScoreSummary"></div>
+                    </div>
+                </div>
+                <div class="card">
+                    <h2>Dimension Breakdown &mdash; Butterfly Chart</h2>
+                    <div style="display:flex;gap:8px;font-size:0.78em;color:#888;margin-bottom:10px;align-items:center;">
+                        <span style="width:148px;"></span>
+                        <span style="flex:1;text-align:right;color:#667eea;font-weight:600;">&#8592; Candidate A</span>
+                        <span style="width:2px;"></span>
+                        <span style="flex:1;color:#f06292;font-weight:600;">Candidate B &#8594;</span>
+                    </div>
+                    <div id="cmpButterflyChart" class="butterfly-chart"></div>
+                    <div style="margin-top:8px;font-size:0.75em;color:#aaa;">
+                        Colors: <span style="color:#4caf50;">&#9632;</span> Excellent (score &ge; avg+15)
+                        <span style="color:#2196f3;margin-left:8px;">&#9632;</span> Above avg
+                        <span style="color:#ff9800;margin-left:8px;">&#9632;</span> Below avg
+                        <span style="color:#f44336;margin-left:8px;">&#9632;</span> Weak (score &lt; avg&minus;15)
+                    </div>
+                </div>
+                <div class="card">
+                    <h2>Rationale &mdash; Dimension by Dimension</h2>
+                    <div id="cmpRationale"></div>
+                </div>
+            </div>
         </div>
     </div>
+
+<!-- Comparison cross-assignment warning modal -->
+<div id="cmpWarningOverlay" style="display:none;position:fixed;inset:0;background:rgba(0,0,0,0.5);z-index:1000;align-items:center;justify-content:center;">
+    <div style="background:white;border-radius:12px;padding:32px;max-width:400px;width:90%;box-shadow:0 20px 60px rgba(0,0,0,0.3);">
+        <h3 style="margin-bottom:12px;color:#333;">Clear Current Comparison?</h3>
+        <p style="color:#666;margin-bottom:20px;font-size:0.92em;line-height:1.6;">
+            Loading a new assignment will clear your current candidate selection and comparison. Continue?
+        </p>
+        <div style="display:flex;gap:10px;justify-content:flex-end;">
+            <button class="btn" style="background:#f5f5f5;color:#555;" onclick="closeCmpModal()">Keep Current</button>
+            <button class="btn" id="cmpModalConfirmBtn">Clear &amp; Load</button>
+        </div>
+    </div>
+</div>
 
 </div><!-- /shell -->
 
@@ -982,6 +1055,12 @@ let _allCandidates   = [];
 let _activeFilter    = 'all';
 let _currentSubId    = null;   // tracks submission ID visible in detail panel
 
+// State for Tab 5 comparison
+let _cmpSelected      = [];   // up to 2 submission_ids currently checked
+let _cmpCandidatesMap = {};   // submission_id -> full candidate object
+let _cmpDimAverages   = {};   // dimension_averages from last loadCandidates() call
+let _cmpAssignId      = null; // assignment ID currently loaded in Tab 5
+
 async function refreshAssignList() {
     try {
         const res  = await fetch(`${API}/assignments`);
@@ -1240,48 +1319,66 @@ function drawRadar(svgId, dimensions) {
 // ══════════════════════════════════════════════════════════════════════════
 // TAB 5 — Candidate Comparison
 // ══════════════════════════════════════════════════════════════════════════
-async function loadCandidates() {
+async function loadCandidates(confirmed = false) {
     const id = document.getElementById('compareAssignId').value.trim();
     if (!id) { showAlert('cmpAlert', 'Enter an assignment ID', 'error'); return; }
+
+    // Guard: warn before clearing an active comparison/selection
+    const panelVisible = document.getElementById('comparisonPanel').style.display !== 'none';
+    if (!confirmed && id !== _cmpAssignId && (_cmpSelected.length > 0 || panelVisible)) {
+        showCmpWarningModal(() => loadCandidates(true));
+        return;
+    }
 
     try {
         const res  = await fetch(`${API}/assignments/${id}/candidates`);
         const data = await res.json();
         if (!res.ok) throw new Error(data.error || data.detail);
 
+        // Store state
+        _cmpAssignId      = id;
+        _cmpDimAverages   = data.dimension_averages || {};
+        _cmpCandidatesMap = {};
+        _cmpSelected      = [];
+        (data.candidates || []).forEach(c => { _cmpCandidatesMap[c.submission_id] = c; });
+
+        document.getElementById('comparisonPanel').style.display = 'none';
+        updateCompareBtnState();
         document.getElementById('cmpTotal').textContent = data.total;
 
         if (data.total === 0) {
             document.getElementById('compareBody').innerHTML =
-                `<tr><td colspan="14" style="text-align:center; padding:30px; color:#aaa;">
+                `<tr><td colspan="15" style="text-align:center; padding:30px; color:#aaa;">
                     No submissions yet for this assignment.</td></tr>`;
+            document.getElementById('avgBars').innerHTML = '';
             document.getElementById('comparePanel').style.display = 'block';
             return;
         }
 
         document.getElementById('compareBody').innerHTML = data.candidates.map(c => {
-            const score = c.composite_score || c.score || 0;
+            const score = c.composite_score ?? c.score ?? 0;
             const dimCells = DIM_ORDER.map(dim => {
                 const s = c.dimensions?.[dim]?.score ?? '—';
                 const cls = typeof s === 'number' ? scoreClass(s) : '';
                 return `<td><span class="mini-score ${cls}">${s}</span></td>`;
             }).join('');
-
-            return `<tr>
+            return `<tr id="cmpRow-${c.submission_id}">
+                <td onclick="event.stopPropagation();" style="text-align:center;">
+                    <input type="checkbox" class="compare-checkbox"
+                        onchange="toggleCompareSelect('${c.submission_id}')">
+                </td>
                 <td style="font-weight:700; color:#667eea;">#${c.rank}</td>
                 <td style="font-family:monospace; font-size:0.82em; color:#888;">${c.submission_id.substring(0,8)}…</td>
                 <td style="color:#888;">${fmtDate(c.submitted_at)}</td>
                 <td style="font-weight:700; font-size:1.05em;">${Math.round(score)}</td>
                 <td>${hireBadgeHtml(c.hire_recommendation)}</td>
                 ${dimCells}
-                <td>
-                    <button class="btn btn-sm" onclick="viewInResults('${c.submission_id}')">View</button>
-                </td>
+                <td><button class="btn btn-sm" onclick="viewInResults('${c.submission_id}')">View</button></td>
             </tr>`;
         }).join('');
 
         // Cohort averages
-        const avgs = data.dimension_averages || {};
+        const avgs = _cmpDimAverages;
         document.getElementById('avgBars').innerHTML = DIM_ORDER.map(dim => `
             <div style="display:flex; align-items:center; gap:10px; margin-bottom:8px;">
                 <span style="min-width:220px; font-size:0.87em; color:#555;">
@@ -1303,6 +1400,199 @@ async function loadCandidates() {
     }
 }
 
+
+function toggleCompareSelect(submissionId) {
+    const rowEl = document.getElementById('cmpRow-' + submissionId);
+    const idx   = _cmpSelected.indexOf(submissionId);
+
+    if (idx !== -1) {
+        // Deselecting
+        _cmpSelected.splice(idx, 1);
+        if (rowEl) rowEl.classList.remove('selected-row');
+    } else {
+        // Selecting — if already 2, evict the oldest
+        if (_cmpSelected.length === 2) {
+            const evicted    = _cmpSelected.shift();
+            const evictedRow = document.getElementById('cmpRow-' + evicted);
+            if (evictedRow) {
+                evictedRow.classList.remove('selected-row');
+                const cb = evictedRow.querySelector('.compare-checkbox');
+                if (cb) cb.checked = false;
+            }
+        }
+        _cmpSelected.push(submissionId);
+        if (rowEl) rowEl.classList.add('selected-row');
+    }
+    updateCompareBtnState();
+}
+
+function updateCompareBtnState() {
+    const btn = document.getElementById('cmpCompareBtn');
+    if (!btn) return;
+    btn.disabled     = _cmpSelected.length !== 2;
+    btn.textContent  = `Compare Selected (${_cmpSelected.length}/2)`;
+}
+
+function quartileColor(score, avg) {
+    if (avg == null)          return '#b39ddb';
+    if (score >= avg + 15)    return '#4caf50';
+    if (score >= avg)         return '#2196f3';
+    if (score >= avg - 15)    return '#ff9800';
+    return '#f44336';
+}
+
+function drawCompareRadar(svgId, dimsA, dimsB) {
+    const svg = document.getElementById(svgId);
+    const cx = 150, cy = 150, r = 100, labelR = 128;
+    const n   = DIM_ORDER.length;
+    let html  = '';
+
+    // Grid rings
+    [0.25, 0.5, 0.75, 1].forEach(frac => {
+        html += `<circle cx="${cx}" cy="${cy}" r="${r * frac}" fill="none" stroke="#e8e8f0" stroke-width="1"/>`;
+    });
+
+    // Axes + labels
+    DIM_ORDER.forEach((dim, i) => {
+        const angle = (i * 2 * Math.PI / n) - Math.PI / 2;
+        const ax = cx + r * Math.cos(angle), ay = cy + r * Math.sin(angle);
+        html += `<line x1="${cx}" y1="${cy}" x2="${ax}" y2="${ay}" stroke="#e0e0e0" stroke-width="1"/>`;
+        const lx = cx + labelR * Math.cos(angle), ly = cy + labelR * Math.sin(angle);
+        html += `<text x="${lx}" y="${ly}" text-anchor="middle" dominant-baseline="middle"
+            font-size="11" font-weight="600" fill="#667eea">
+            <title>${DIM_LABELS[dim]}</title>${DIM_SHORT[dim]}</text>`;
+    });
+
+    // Polygon B (ghost — behind A)
+    const ptsB = DIM_ORDER.map((dim, i) => {
+        const s     = Math.min(100, Math.max(0, dimsB[dim]?.score || 0));
+        const angle = (i * 2 * Math.PI / n) - Math.PI / 2;
+        return `${cx + r * (s / 100) * Math.cos(angle)},${cy + r * (s / 100) * Math.sin(angle)}`;
+    }).join(' ');
+    html += `<polygon points="${ptsB}" fill="rgba(240,98,146,0.15)" stroke="#f06292" stroke-width="1.5" stroke-dasharray="4 3"/>`;
+
+    // Polygon A (primary — in front)
+    const ptsA = DIM_ORDER.map((dim, i) => {
+        const s     = Math.min(100, Math.max(0, dimsA[dim]?.score || 0));
+        const angle = (i * 2 * Math.PI / n) - Math.PI / 2;
+        return `${cx + r * (s / 100) * Math.cos(angle)},${cy + r * (s / 100) * Math.sin(angle)}`;
+    }).join(' ');
+    html += `<polygon points="${ptsA}" fill="rgba(102,126,234,0.25)" stroke="#667eea" stroke-width="2"/>`;
+
+    // Dots A (purple — in front)
+    DIM_ORDER.forEach((dim, i) => {
+        const s     = Math.min(100, Math.max(0, dimsA[dim]?.score || 0));
+        const angle = (i * 2 * Math.PI / n) - Math.PI / 2;
+        const dx    = cx + r * (s / 100) * Math.cos(angle), dy = cy + r * (s / 100) * Math.sin(angle);
+        html += `<circle cx="${dx}" cy="${dy}" r="4" fill="#667eea"><title>${DIM_LABELS[dim]}: ${s}</title></circle>`;
+    });
+
+    // Dots B (pink)
+    DIM_ORDER.forEach((dim, i) => {
+        const s     = Math.min(100, Math.max(0, dimsB[dim]?.score || 0));
+        const angle = (i * 2 * Math.PI / n) - Math.PI / 2;
+        const dx    = cx + r * (s / 100) * Math.cos(angle), dy = cy + r * (s / 100) * Math.sin(angle);
+        html += `<circle cx="${dx}" cy="${dy}" r="3.5" fill="#f06292" opacity="0.9"><title>${DIM_LABELS[dim]}: ${s}</title></circle>`;
+    });
+
+    svg.innerHTML = html;
+}
+
+function renderComparisonPanel(idA, idB) {
+    const candA = _cmpCandidatesMap[idA];
+    const candB = _cmpCandidatesMap[idB];
+    if (!candA || !candB) return;
+
+    const dimsA = candA.dimensions || {};
+    const dimsB = candB.dimensions || {};
+
+    document.getElementById('cmpPanelTitle').textContent =
+        `Candidate A (#${candA.rank}) vs Candidate B (#${candB.rank})`;
+
+    const scoreA = Math.round(candA.composite_score ?? candA.score ?? 0);
+    const scoreB = Math.round(candB.composite_score ?? candB.score ?? 0);
+    document.getElementById('cmpScoreSummary').innerHTML = `
+        <div style="display:grid;grid-template-columns:1fr 1fr;gap:16px;margin-top:4px;">
+            <div style="text-align:center;padding:16px;border:2px solid #667eea;border-radius:8px;">
+                <div style="font-size:0.75em;font-weight:700;color:#667eea;letter-spacing:.05em;margin-bottom:6px;">CANDIDATE A</div>
+                <div style="font-size:2em;font-weight:800;color:#333;">${scoreA}</div>
+                <div style="margin-top:6px;">${hireBadgeHtml(candA.hire_recommendation)}</div>
+            </div>
+            <div style="text-align:center;padding:16px;border:2px solid #f06292;border-radius:8px;">
+                <div style="font-size:0.75em;font-weight:700;color:#f06292;letter-spacing:.05em;margin-bottom:6px;">CANDIDATE B</div>
+                <div style="font-size:2em;font-weight:800;color:#333;">${scoreB}</div>
+                <div style="margin-top:6px;">${hireBadgeHtml(candB.hire_recommendation)}</div>
+            </div>
+        </div>`;
+
+    drawCompareRadar('cmpRadarSvg', dimsA, dimsB);
+
+    document.getElementById('cmpButterflyChart').innerHTML = DIM_ORDER.map(dim => {
+        const sA  = dimsA[dim]?.score ?? 0;
+        const sB  = dimsB[dim]?.score ?? 0;
+        const avg = _cmpDimAverages[dim] ?? null;
+        const cA  = quartileColor(sA, avg);
+        const cB  = quartileColor(sB, avg);
+        return `<div class="butterfly-row">
+            <div style="width:148px;flex-shrink:0;font-size:0.82em;color:#555;">
+                <strong style="color:#667eea;">${DIM_SHORT[dim]}</strong> ${DIM_LABELS[dim]}
+            </div>
+            <div class="butterfly-half butterfly-half-a">
+                <div class="butterfly-bar" style="width:${sA}%;background:${cA};" title="A: ${sA}/100"></div>
+            </div>
+            <div class="center-divider"></div>
+            <div class="butterfly-half butterfly-half-b">
+                <div class="butterfly-bar" style="width:${sB}%;background:${cB};" title="B: ${sB}/100"></div>
+            </div>
+            <span style="font-size:0.8em;color:#888;min-width:60px;text-align:right;">${sA} vs ${sB}</span>
+        </div>`;
+    }).join('');
+
+    document.getElementById('cmpRationale').innerHTML = DIM_ORDER.map(dim => {
+        const sA = dimsA[dim]?.score ?? 0;
+        const sB = dimsB[dim]?.score ?? 0;
+        const rA = dimsA[dim]?.rationale || '—';
+        const rB = dimsB[dim]?.rationale || '—';
+        return `<details style="border-bottom:1px solid #f0f0f8;padding:6px 0;">
+            <summary style="cursor:pointer;list-style:none;display:flex;align-items:center;gap:8px;padding:4px 0;">
+                <span style="color:#667eea;font-weight:700;font-size:0.85em;min-width:26px;">${DIM_SHORT[dim]}</span>
+                <span style="color:#333;font-size:0.88em;">${DIM_LABELS[dim]}</span>
+                <span class="mini-score ${scoreClass(sA)}" style="margin-left:auto;">${sA}</span>
+                <span style="color:#888;font-size:0.8em;">vs</span>
+                <span class="mini-score ${scoreClass(sB)}">${sB}</span>
+            </summary>
+            <div style="display:grid;grid-template-columns:1fr 1fr;gap:16px;padding:10px 0 6px 34px;">
+                <div>
+                    <div style="font-size:0.72em;font-weight:700;color:#667eea;margin-bottom:4px;">CANDIDATE A</div>
+                    <div class="rationale-text">${escHtml(rA)}</div>
+                </div>
+                <div>
+                    <div style="font-size:0.72em;font-weight:700;color:#f06292;margin-bottom:4px;">CANDIDATE B</div>
+                    <div class="rationale-text">${escHtml(rB)}</div>
+                </div>
+            </div>
+        </details>`;
+    }).join('');
+
+    document.getElementById('comparisonPanel').style.display = 'block';
+    document.getElementById('comparisonPanel').scrollIntoView({ behavior: 'smooth', block: 'start' });
+}
+
+function closeComparisonPanel() {
+    document.getElementById('comparisonPanel').style.display = 'none';
+}
+
+let _cmpModalCallback = null;
+function showCmpWarningModal(onConfirm) {
+    _cmpModalCallback = onConfirm;
+    const overlay = document.getElementById('cmpWarningOverlay');
+    overlay.style.display = 'flex';
+    document.getElementById('cmpModalConfirmBtn').onclick = () => { const cb = _cmpModalCallback; closeCmpModal(); cb?.(); };
+}
+function closeCmpModal() {
+    document.getElementById('cmpWarningOverlay').style.display = 'none';
+    _cmpModalCallback = null;
+}
 
 // ── Utilities ─────────────────────────────────────────────────────────────
 function escHtml(str) {

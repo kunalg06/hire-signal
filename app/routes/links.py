@@ -22,6 +22,16 @@ def generate_link(assignment_id):
     # Unpack assignment fields (id, title, description, starter_code, evaluation_criteria, ...)
     _, title, description, starter_code, evaluation_criteria = assignment_row[:5]
 
+    # challenge_id is appended at index 6 (via ALTER TABLE migration), not adjacent
+    # to evaluation_criteria — index 5 is created_at. See Story 6.5 Dev Notes.
+    challenge_id = assignment_row[6] if len(assignment_row) > 6 else None
+
+    ai_assistance_mode = 'unguarded'
+    if challenge_id:
+        challenge_row = db_service.get_challenge(challenge_id)
+        if challenge_row:
+            ai_assistance_mode = challenge_row[9]
+
     # Create unique link
     link_id = IDGenerator.generate_link_id()
 
@@ -48,6 +58,7 @@ def generate_link(assignment_id):
                     description=description,
                     criteria=evaluation_criteria or '',
                     starter_code=starter_code or '',
+                    ai_assistance_mode=ai_assistance_mode,
                 )
                 break
             retry_count += 1

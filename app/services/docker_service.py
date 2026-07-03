@@ -103,11 +103,21 @@ class DockerService:
 
     @staticmethod
     def inject_workspace_files(container_id: str, title: str, description: str,
-                               criteria: str, starter_code: str):
+                               criteria: str, starter_code: str,
+                               ai_assistance_mode: str = 'unguarded'):
         """
         Write instructions.md and solution.py into /workspace immediately
         after container creation. Story 6.1 three-panel format used for
         instructions.md so the candidate sees a structured brief inside VS Code.
+
+        Story 6.5: when ai_assistance_mode == 'guarded', also writes a
+        CLAUDE.md into /workspace. Claude Code CLI (installed in the student
+        container, see docker/Dockerfile.codeserver) auto-loads CLAUDE.md
+        from its working directory as project instructions, attempting to
+        restrict the candidate's in-session Claude responses to conceptual
+        guidance only. This is a prompt-level request, not enforced access
+        control — the candidate has shell access and can edit or delete the
+        file (see Story 6.5 Review Findings for the accepted v1 tradeoff).
         """
         import time
         import tempfile
@@ -127,7 +137,7 @@ class DockerService:
 ## Your Task
 Review the starter code in `solution.py`. Complete the implementation
 according to the scenario above. Run and test your solution using the
-integrated terminal (Ctrl+\`).
+integrated terminal (Ctrl+`).
 
 Use AI tools freely — you are evaluated on **how well you collaborate
 with AI**, not on writing code without assistance.
@@ -143,6 +153,24 @@ with AI**, not on writing code without assistance.
 When finished, click **Submit Assessment** in the top bar of this page.
 Save all files first (Ctrl+S).
 """
+
+        guarded_claude_md = """# Assessment Mode: Guarded
+
+You are assisting a candidate during a technical assessment in **guarded mode**.
+
+Rules for this session:
+- Do NOT write or output a complete, working solution — no full functions, no
+  complete corrected code blocks the candidate could copy in directly.
+- You MAY: explain relevant concepts, name applicable methods/APIs/patterns,
+  describe a general approach in prose, point out what's wrong with a piece
+  of reasoning or code, or walk through *why* something fails.
+- If asked directly for "the code" or "the fix," decline and instead explain
+  what the candidate needs to figure out to write it themselves.
+
+This restriction exists so the assessment measures the candidate's own
+understanding, not AI-generated code they copy in unchanged.
+"""
+
         try:
             with tempfile.TemporaryDirectory() as tmpdir:
                 # instructions.md
@@ -163,11 +191,27 @@ Save all files first (Ctrl+S).
                 logger.debug("  Injected solution.py into %s", container_id[:12])
 
                 # docker cp writes files as root — make them writable by the coder user
+                chmod_paths = ['/workspace/instructions.md', '/workspace/solution.py']
+
+                # Story 6.5: guarded mode restricts the candidate's in-session
+                # Claude Code CLI via an auto-loaded CLAUDE.md in the workdir.
+                # Isolated in its own try/except so a failure here can't skip
+                # the chmod below for the already-copied instructions.md/solution.py.
+                if ai_assistance_mode == 'guarded':
+                    try:
+                        claude_md_path = os.path.join(tmpdir, 'CLAUDE.md')
+                        with open(claude_md_path, 'w', encoding='utf-8') as f:
+                            f.write(guarded_claude_md)
+                        _run(['cp', claude_md_path, f'{container_id}:/workspace/CLAUDE.md'])
+                        chmod_paths.append('/workspace/CLAUDE.md')
+                        logger.debug("  Injected guarded-mode CLAUDE.md into %s", container_id[:12])
+                    except Exception as e:
+                        logger.warning("guarded-mode CLAUDE.md injection failed for %s: %s", container_id[:12], e)
+
                 _run([
                     'exec', '-u', 'root', container_id,
                     'chmod', '666',
-                    '/workspace/instructions.md',
-                    '/workspace/solution.py',
+                    *chmod_paths,
                 ], check=False)
                 logger.debug("  Permissions set on workspace files in %s", container_id[:12])
 

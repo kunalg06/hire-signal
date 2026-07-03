@@ -36,9 +36,9 @@ This is NOT an educational platform. It is a **hiring tool** for employers to ev
 
 ---
 
-## Current Implementation State (~80% complete)
+## Current Implementation State (~90% complete)
 
-### ✅ Done — Epics 1, 2, 3, 4 + Phase 1 integration fixes
+### ✅ Done — Epics 1–6 + Phase 1 integration fixes
 
 #### Epic 1 — Bug Fixes (done 2026-06-30)
 - Story 1.1 — efficiency score bug fixed (`submissions.py`)
@@ -64,6 +64,16 @@ This is NOT an educational platform. It is a **hiring tool** for employers to ev
 - `score_8_dimensions()` — single Claude call, all 8 keys guaranteed
 - Python-enforced thresholds (never trust Claude's)
 - Per-dimension rows persisted; `GET /api/submission/<id>` returns full 8-dim response
+
+#### Epic 5 — Employer Dashboard UI Overhaul (done 2026-07-02)
+- Story 5.3 (Side-by-Side Comparison View) — overlaid radar + butterfly chart + rationale panels in Tab 5; code review complete, 4 issues fixed
+
+#### Epic 6 — Student Experience & Preview as Student (done 2026-07-03)
+- Story 6.1 — structured challenge display: `instructions.md` injected with Scenario / Your Task / Evaluation Criteria three-panel format
+- Story 6.2 — verification nudge before submission; wording trimmed to exact spec after code review
+- Story 6.3 — real polling: `startPolling()` in `student.py` hits `GET /api/submission/<id>` every 3s until `evaluated_at` set, 60s timeout; composite_score falsy-fallback fixed (0-score edge case)
+- Story 6.4 — `GET /student/preview/<challenge_id>` preview route (no Docker); review fixed hire_data/hire_evaluation key mismatch, unescaped rec label, NaN guard, missing-submissionId guard. AC3 reworded: challenge-template preview, not assignment-fidelity
+- Story 6.5 — guarded mode: `inject_workspace_files()` writes `/workspace/CLAUDE.md` for guarded challenges; `links.py` resolves `ai_assistance_mode` via `challenge_id`. Smoke-tested end-to-end through real containers. Guarded mode is honor-system-only (accepted v1 scope). chmod-skip-on-CLAUDE.md-failure bug fixed
 
 #### Epic 4 — Candidate Comparison & Hiring Workflow (done 2026-07-02)
 
@@ -111,26 +121,24 @@ This is NOT an educational platform. It is a **hiring tool** for employers to ev
 
 | Story | Description |
 |---|---|
-| 1.4 | Replace `print()` with `logging` module |
-| 3.6 | Seed 10 curated challenges (`scripts/seed_challenges.py`) |
-| 5.3 | Butterfly chart / side-by-side radar overlay (Tab 5) |
-| 6.2 | Verification nudge before submission ("Did you run it?") |
-| 6.3 | Real polling: `GET /api/submission/<id>` every 3s until `evaluated_at` set |
-| 6.4 | Preview as Student: `GET /student/preview/<challenge_id>` (no Docker) |
-| 6.5 | Guarded mode: Claude system prompt injection in student container |
-| 7.1–7.5 | Unit + integration tests (Epic 7) |
+| 7.1 | Unit test `score_8_dimensions` (mock Claude, all 8 keys, Python-weighted avg) |
+| 7.2 | Unit test `extract_container_files` (Docker unavailable → `{}`, text filter, 50KB cap) |
+| 7.3 | Unit test hire-recommendation thresholds (all 4 boundaries) |
+| 7.4 | Integration test `GET /api/challenges/<id>/candidates` |
+| 7.5 | Unit test `generate_challenge` with new params (invalid enum → 400) |
 
 ---
 
 ## Next Session — Start Here
 
-**Workflow state:** All Epic 4 stories (4.1–4.5) are `done`. No `ready-for-dev` stories exist.
+**Workflow state:** Epics 1–6 are all `done` (Epic 6 completed 2026-07-03). Only Epic 7 (Test Coverage) remains. Retrospectives optional for all epics.
 
 **Next action:** Run `/bmad-create-story` to create the next story file.
-- First backlog story in sprint order: **Story 1.4** (`1-4-replace-print-with-proper-logging`)
-- The skill will auto-discover this from `sprint-status.yaml`
+- First backlog story in sprint order: **Story 7.1** (`7-1-unit-test-score_8_dimensions`)
 
 **Then:** Run `/bmad-dev-story` to implement it.
+
+**Note:** Epic 6 work (stories 6.2–6.5) is implemented and reviewed but **uncommitted** as of session end 2026-07-03.
 
 ---
 
@@ -168,6 +176,7 @@ This is NOT an educational platform. It is a **hiring tool** for employers to ev
 - **`hire_evaluations.composite_score` and `.recommendation` are read-only after creation** — override only writes `is_overridden`, `override_recommendation`, `override_rationale`.
 - **`dim_averages` uses `is_evaluated` filter, not dict truthiness** — and skips None scores (no zero-default).
 - **No sandbox on student iframe** — code-server uses service workers; sandbox blocks them.
+- **Guarded mode is honor-system-only (v1)** — enforced via `/workspace/CLAUDE.md` injection; students can delete/edit it. Accepted scope; hard enforcement deferred.
 - **Module-level `db_service = DatabaseService()`** in each route file — instantiated at import time.
 - **Windows cp1252 print constraint** — see above; applies to ALL print/logging statements.
 
@@ -212,3 +221,4 @@ This is NOT an educational platform. It is a **hiring tool** for employers to ev
 | POST | `/api/submissions/<id>/override` | Apply human override to AI recommendation |
 | GET | `/api/analytics/overrides` | Override calibration analytics |
 | GET | `/student/<link_id>` | Student assessment workspace |
+| GET | `/student/preview/<challenge_id>` | Employer preview of student view (no Docker, no submission) |

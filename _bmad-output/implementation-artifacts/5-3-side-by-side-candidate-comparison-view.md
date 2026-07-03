@@ -1,6 +1,6 @@
 # Story 5.3: Side-by-Side Candidate Comparison View
 
-Status: ready-for-dev
+Status: done
 
 ## Story
 
@@ -22,79 +22,79 @@ so that I can make a precise, evidence-based decision between two finalists.
 
 ## Tasks / Subtasks
 
-- [ ] Add CSS for new UI components inside `<style>` (AC: 1, 2, 4)
-  - [ ] `.selected-row` — `background: #f0f0ff` on checked table rows
-  - [ ] `.compare-checkbox` — 16×16, `accent-color: #667eea`, cursor pointer
-  - [ ] `#cmpCompareBtn:disabled` — `opacity: 0.4; cursor: not-allowed`
-  - [ ] `.butterfly-chart` — `width: 100%`
-  - [ ] `.butterfly-row` — flex row, `gap:8px; padding:7px 0; border-bottom:1px solid #f4f4fb`
-  - [ ] `.butterfly-half` — `flex:1; display:flex`; `.butterfly-half-a { justify-content:flex-end; }` `.butterfly-half-b { justify-content:flex-start; }`
-  - [ ] `.butterfly-bar` — `height:18px; border-radius:3px; min-width:2px`
-  - [ ] `.center-divider` — `width:2px; background:#ddd; flex-shrink:0; height:22px; align-self:center`
-  - [ ] `#cmpWarningOverlay` — `position:fixed; inset:0; background:rgba(0,0,0,0.5); z-index:1000; display:none; align-items:center; justify-content:center`
+- [x] Add CSS for new UI components inside `<style>` (AC: 1, 2, 4)
+  - [x] `.selected-row` — `background: #f0f0ff` on checked table rows
+  - [x] `.compare-checkbox` — 16×16, `accent-color: #667eea`, cursor pointer
+  - [x] `#cmpCompareBtn:disabled` — `opacity: 0.4; cursor: not-allowed`
+  - [x] `.butterfly-chart` — `width: 100%`
+  - [x] `.butterfly-row` — flex row, `gap:8px; padding:7px 0; border-bottom:1px solid #f4f4fb`
+  - [x] `.butterfly-half` — `flex:1; display:flex`; `.butterfly-half-a { justify-content:flex-end; }` `.butterfly-half-b { justify-content:flex-start; }`
+  - [x] `.butterfly-bar` — `height:18px; border-radius:3px; min-width:2px`
+  - [x] `.center-divider` — `width:2px; background:#ddd; flex-shrink:0; height:22px; align-self:center`
+  - [x] `#cmpWarningOverlay` — `position:fixed; inset:0; background:rgba(0,0,0,0.5); z-index:1000; display:none; align-items:center; justify-content:center`
 
-- [ ] Add Tab 5 state variables near the existing Tab 5 JS state section (after line ~983)  (AC: 1, 3)
-  - [ ] `let _cmpSelected = [];` — array of up to 2 submission_ids currently checked
-  - [ ] `let _cmpCandidatesMap = {};` — map submission_id → full candidate object from last load
-  - [ ] `let _cmpDimAverages = {};` — `dimension_averages` from last `loadCandidates()` call
-  - [ ] `let _cmpAssignId = null;` — assignment ID currently loaded in Tab 5
+- [x] Add Tab 5 state variables near the existing Tab 5 JS state section (after line ~983)  (AC: 1, 3)
+  - [x] `let _cmpSelected = [];` — array of up to 2 submission_ids currently checked
+  - [x] `let _cmpCandidatesMap = {};` — map submission_id → full candidate object from last load
+  - [x] `let _cmpDimAverages = {};` — `dimension_averages` from last `loadCandidates()` call
+  - [x] `let _cmpAssignId = null;` — assignment ID currently loaded in Tab 5
 
-- [ ] Update Tab 5 HTML — warning modal + compare button + comparison panel (AC: 1, 2, 4, 5)
-  - [ ] Add `<button id="cmpCompareBtn" disabled …>Compare Selected (0/2)</button>` next to "Load Candidates" button in the Tab 5 card
-  - [ ] Add checkbox `<th style="width:36px;"></th>` as the FIRST column in compare table `<thead>`
-  - [ ] Update empty-state colspan from 14 to 15
-  - [ ] Add `#comparisonPanel` div (hidden) AFTER the `#comparePanel` div (see HTML spec below)
-  - [ ] Add `#cmpWarningOverlay` modal div INSIDE `.shell` BEFORE `</div><!-- /shell -->` (see HTML spec below)
+- [x] Update Tab 5 HTML — warning modal + compare button + comparison panel (AC: 1, 2, 4, 5)
+  - [x] Add `<button id="cmpCompareBtn" disabled …>Compare Selected (0/2)</button>` next to "Load Candidates" button in the Tab 5 card
+  - [x] Add checkbox `<th style="width:36px;"></th>` as the FIRST column in compare table `<thead>`
+  - [x] Update empty-state colspan from 14 to 15
+  - [x] Add `#comparisonPanel` div (hidden) AFTER the `#comparePanel` div (see HTML spec below)
+  - [x] Add `#cmpWarningOverlay` modal div INSIDE `.shell` BEFORE `</div><!-- /shell -->` (see HTML spec below)
 
-- [ ] Update `loadCandidates()` to store state and guard cross-assignment loads (AC: 4, 6)
-  - [ ] Add guard at start: if new assignment ID ≠ `_cmpAssignId` AND (`_cmpSelected.length > 0` OR `#comparisonPanel` is visible), call `showCmpWarningModal(() => loadCandidates())` and return early
-  - [ ] After successful fetch: set `_cmpAssignId = id`, populate `_cmpCandidatesMap` (keyed by `submission_id`), set `_cmpDimAverages = data.dimension_averages || {}`
-  - [ ] Clear `_cmpSelected = []`, hide `#comparisonPanel`, call `updateCompareBtnState()`
-  - [ ] Rebuild table rows with checkbox column prepended (see row template in Dev Notes)
-  - [ ] Update colspan of empty-state row to 15
+- [x] Update `loadCandidates()` to store state and guard cross-assignment loads (AC: 4, 6)
+  - [x] Add guard at start: if new assignment ID ≠ `_cmpAssignId` AND (`_cmpSelected.length > 0` OR `#comparisonPanel` is visible), call `showCmpWarningModal(() => loadCandidates())` and return early
+  - [x] After successful fetch: set `_cmpAssignId = id`, populate `_cmpCandidatesMap` (keyed by `submission_id`), set `_cmpDimAverages = data.dimension_averages || {}`
+  - [x] Clear `_cmpSelected = []`, hide `#comparisonPanel`, call `updateCompareBtnState()`
+  - [x] Rebuild table rows with checkbox column prepended (see row template in Dev Notes)
+  - [x] Update colspan of empty-state row to 15
 
-- [ ] Add `toggleCompareSelect(submissionId)` function (AC: 1, 3)
-  - [ ] If already in `_cmpSelected`: remove it, uncheck its row's checkbox, remove `.selected-row` class
-  - [ ] If not in `_cmpSelected` and `_cmpSelected.length < 2`: add it, add `.selected-row`
-  - [ ] If `_cmpSelected.length === 2` (third checkbox): remove `_cmpSelected[0]`, uncheck its checkbox and remove its `.selected-row`, then add new one
-  - [ ] Call `updateCompareBtnState()` after every change
+- [x] Add `toggleCompareSelect(submissionId)` function (AC: 1, 3)
+  - [x] If already in `_cmpSelected`: remove it, uncheck its row's checkbox, remove `.selected-row` class
+  - [x] If not in `_cmpSelected` and `_cmpSelected.length < 2`: add it, add `.selected-row`
+  - [x] If `_cmpSelected.length === 2` (third checkbox): remove `_cmpSelected[0]`, uncheck its checkbox and remove its `.selected-row`, then add new one
+  - [x] Call `updateCompareBtnState()` after every change
 
-- [ ] Add `updateCompareBtnState()` function (AC: 1)
-  - [ ] `const btn = document.getElementById('cmpCompareBtn')`
-  - [ ] `btn.disabled = _cmpSelected.length !== 2`
-  - [ ] `btn.textContent = \`Compare Selected (${_cmpSelected.length}/2)\``
+- [x] Add `updateCompareBtnState()` function (AC: 1)
+  - [x] `const btn = document.getElementById('cmpCompareBtn')`
+  - [x] `btn.disabled = _cmpSelected.length !== 2`
+  - [x] `btn.textContent = \`Compare Selected (${_cmpSelected.length}/2)\``
 
-- [ ] Add `drawCompareRadar(svgId, dimsA, dimsB)` function (AC: 2a)
-  - [ ] 300×300 canvas: `cx=150, cy=150, r=100, labelR=128`
-  - [ ] Draw grid rings (4 rings at 0.25/0.5/0.75/1.0), axes, and abbreviation labels (same pattern as existing `drawRadar`)
-  - [ ] Polygon B (ghost, BEHIND A): fill `rgba(240,98,146,0.15)` stroke `#f06292` strokeWidth 1.5 strokeDasharray `"4 3"`
-  - [ ] Polygon A (primary, IN FRONT): fill `rgba(102,126,234,0.25)` stroke `#667eea` strokeWidth 2
-  - [ ] Dots A: r=4 fill `#667eea` with tooltip `<title>`
-  - [ ] Dots B: r=3.5 fill `#f06292` opacity 0.9 with tooltip `<title>`
-  - [ ] Draw order: rings → axes+labels → polygon B → polygon A → dots A → dots B (B ghost behind A primary)
+- [x] Add `drawCompareRadar(svgId, dimsA, dimsB)` function (AC: 2a)
+  - [x] 300×300 canvas: `cx=150, cy=150, r=100, labelR=128`
+  - [x] Draw grid rings (4 rings at 0.25/0.5/0.75/1.0), axes, and abbreviation labels (same pattern as existing `drawRadar`)
+  - [x] Polygon B (ghost, BEHIND A): fill `rgba(240,98,146,0.15)` stroke `#f06292` strokeWidth 1.5 strokeDasharray `"4 3"`
+  - [x] Polygon A (primary, IN FRONT): fill `rgba(102,126,234,0.25)` stroke `#667eea` strokeWidth 2
+  - [x] Dots A: r=4 fill `#667eea` with tooltip `<title>`
+  - [x] Dots B: r=3.5 fill `#f06292` opacity 0.9 with tooltip `<title>`
+  - [x] Draw order: rings → axes+labels → polygon B → polygon A → dots A → dots B (B ghost behind A primary)
 
-- [ ] Add `quartileColor(score, avg)` helper (AC: 2b)
-  - [ ] If `avg == null`: return `'#b39ddb'` (neutral purple)
-  - [ ] `score >= avg + 15`: return `'#4caf50'` (green — excellent)
-  - [ ] `score >= avg`: return `'#2196f3'` (blue — above average)
-  - [ ] `score >= avg - 15`: return `'#ff9800'` (amber — below average)
-  - [ ] else: return `'#f44336'` (red — weak)
+- [x] Add `quartileColor(score, avg)` helper (AC: 2b)
+  - [x] If `avg == null`: return `'#b39ddb'` (neutral purple)
+  - [x] `score >= avg + 15`: return `'#4caf50'` (green — excellent)
+  - [x] `score >= avg`: return `'#2196f3'` (blue — above average)
+  - [x] `score >= avg - 15`: return `'#ff9800'` (amber — below average)
+  - [x] else: return `'#f44336'` (red — weak)
 
-- [ ] Add `renderComparisonPanel(idA, idB)` function (AC: 2)
-  - [ ] Look up `candA = _cmpCandidatesMap[idA]`, `candB = _cmpCandidatesMap[idB]`
-  - [ ] Set `#cmpPanelTitle` to `"Candidate A (#${candA.rank}) vs Candidate B (#${candB.rank})"`
-  - [ ] Populate `#cmpScoreSummary` with a two-column score/badge table for both candidates
-  - [ ] Call `drawCompareRadar('cmpRadarSvg', candA.dimensions || {}, candB.dimensions || {})`
-  - [ ] Build and set `#cmpButterflyChart` innerHTML using `DIM_ORDER` + `quartileColor()` (see butterfly template below)
-  - [ ] Build and set `#cmpRationale` innerHTML as `<details>` blocks for each dim (see rationale template below)
-  - [ ] Set `#comparisonPanel` `display = 'block'`, scroll into view
+- [x] Add `renderComparisonPanel(idA, idB)` function (AC: 2)
+  - [x] Look up `candA = _cmpCandidatesMap[idA]`, `candB = _cmpCandidatesMap[idB]`
+  - [x] Set `#cmpPanelTitle` to `"Candidate A (#${candA.rank}) vs Candidate B (#${candB.rank})"`
+  - [x] Populate `#cmpScoreSummary` with a two-column score/badge table for both candidates
+  - [x] Call `drawCompareRadar('cmpRadarSvg', candA.dimensions || {}, candB.dimensions || {})`
+  - [x] Build and set `#cmpButterflyChart` innerHTML using `DIM_ORDER` + `quartileColor()` (see butterfly template below)
+  - [x] Build and set `#cmpRationale` innerHTML as `<details>` blocks for each dim (see rationale template below)
+  - [x] Set `#comparisonPanel` `display = 'block'`, scroll into view
 
-- [ ] Add `closeComparisonPanel()` function (AC: 5)
-  - [ ] Set `document.getElementById('comparisonPanel').style.display = 'none'`
+- [x] Add `closeComparisonPanel()` function (AC: 5)
+  - [x] Set `document.getElementById('comparisonPanel').style.display = 'none'`
 
-- [ ] Add `showCmpWarningModal(onConfirm)` and `closeCmpModal()` functions (AC: 4)
-  - [ ] `showCmpWarningModal` stores callback in `_cmpModalCallback`, sets overlay `display = 'flex'`, wires confirm button
-  - [ ] `closeCmpModal` sets overlay `display = 'none'`
+- [x] Add `showCmpWarningModal(onConfirm)` and `closeCmpModal()` functions (AC: 4)
+  - [x] `showCmpWarningModal` stores callback in `_cmpModalCallback`, sets overlay `display = 'flex'`, wires confirm button
+  - [x] `closeCmpModal` sets overlay `display = 'none'`
 
 ## Dev Notes
 
@@ -548,13 +548,24 @@ function closeCmpModal() {
 ## Dev Agent Record
 
 ### Agent Model Used
-(to be filled by implementing agent)
+claude-sonnet-4-6
 
 ### Debug Log References
-(to be filled during implementation)
+- All new symbols grep-verified present in frontend.html: butterfly CSS, cmpCompareBtn, comparisonPanel, cmpWarningOverlay, _cmpSelected, toggleCompareSelect, drawCompareRadar, renderComparisonPanel, etc.
+- `colspan="15"` confirmed in loadCandidates empty-state row (Tab 5 only; Tab 4 correctly stays at colspan="13")
+- `#comparisonPanel` placed inside `#comparePanel`→`#tab-compare` div; warning modal placed inside `.shell` before closing tag
+- Draw order confirmed: rings → axes+labels → polygon B (ghost) → polygon A (primary) → dots A → dots B
 
 ### Completion Notes List
-(to be filled during implementation)
+- Added 9 CSS classes/rules in `<style>` block for comparison UI (selected-row, compare-checkbox, butterfly-*, center-divider, cmpCompareBtn:disabled)
+- Added 4 state variables: `_cmpSelected`, `_cmpCandidatesMap`, `_cmpDimAverages`, `_cmpAssignId`
+- Added checkbox `<th>` as first column in compare table header (14 cols → 15)
+- Added `#cmpCompareBtn` (disabled by default) next to "Load Candidates" button
+- Added full `#comparisonPanel` HTML with: overlaid radar SVG, 2-col score summary, butterfly chart, expandable rationale `<details>` blocks
+- Added `#cmpWarningOverlay` modal (fixed, z-index:1000) inside `.shell`
+- Replaced `loadCandidates()` entirely: added `confirmed` param, cross-assignment guard, state storage, checkbox row template, colspan=15 empty state
+- Added 8 new JS functions: `toggleCompareSelect`, `updateCompareBtnState`, `quartileColor`, `drawCompareRadar`, `renderComparisonPanel`, `closeComparisonPanel`, `showCmpWarningModal`, `closeCmpModal`
+- No Python files changed; no new files; purely additive to frontend.html
 
 ## File List
 
@@ -563,3 +574,5 @@ function closeCmpModal() {
 ## Change Log
 
 - 2026-07-02: Story created
+- 2026-07-02: Implementation complete — side-by-side comparison view added to Tab 5 in templates/frontend.html; all 6 ACs satisfied; purely additive frontend-only change
+- 2026-07-02: Code review complete — 4 major issues identified and fixed; story status set to done
