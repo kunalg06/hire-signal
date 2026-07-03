@@ -35,7 +35,7 @@
 # - Dev moves story to 'review', then runs code-review (fresh context, different LLM recommended)
 
 generated: "2026-07-02"
-last_updated: "2026-07-03"  # updated: Story 6.5 done — Epic 6 complete (all stories 6.1-6.5 done)
+last_updated: "2026-07-03"  # updated: Story 7.1 done (dev + code review); next backlog story is 7.2
 project: coding_platforms
 project_key: NOKEY
 tracking_system: file-system
@@ -217,12 +217,14 @@ development_status:
 
   # ─────────────────────────────────────────────────────────────────────────
   # Epic 7 — Test Coverage
-  # Not started. Runs alongside Epics 2–6 per spec.
+  # In progress as of 2026-07-03 (Story 7.1 created).
   # ─────────────────────────────────────────────────────────────────────────
-  epic-7: backlog
+  epic-7: in-progress
 
-  7-1-unit-test-score_8_dimensions: backlog
-  # Mock Claude, assert all 8 keys present, assert Python-weighted average used
+  7-1-unit-test-score_8_dimensions: done
+  # Implemented + code review complete 2026-07-03: tests/test_score_8_dimensions.py
+  # (12 tests after 8 review patches, all green, hermetic) + root conftest.py.
+  # 4 production gaps deferred (fence-stripping zero-score risk is the notable one)
 
   7-2-unit-test-extract_container_files: backlog
   # Docker unavailable → {}, text-only filter, 50KB cap

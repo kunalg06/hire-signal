@@ -121,7 +121,6 @@ This is NOT an educational platform. It is a **hiring tool** for employers to ev
 
 | Story | Description |
 |---|---|
-| 7.1 | Unit test `score_8_dimensions` (mock Claude, all 8 keys, Python-weighted avg) |
 | 7.2 | Unit test `extract_container_files` (Docker unavailable → `{}`, text filter, 50KB cap) |
 | 7.3 | Unit test hire-recommendation thresholds (all 4 boundaries) |
 | 7.4 | Integration test `GET /api/challenges/<id>/candidates` |
@@ -131,14 +130,14 @@ This is NOT an educational platform. It is a **hiring tool** for employers to ev
 
 ## Next Session — Start Here
 
-**Workflow state:** Epics 1–6 are all `done` (Epic 6 completed 2026-07-03). Only Epic 7 (Test Coverage) remains. Retrospectives optional for all epics.
+**Workflow state:** Epics 1–6 are all `done`. Epic 7 (Test Coverage) `in-progress`: Story 7.1 done (dev + code review 2026-07-03, 12 tests green — `tests/test_score_8_dimensions.py` + root `conftest.py` bootstrap the test infra). Stories 7.2–7.5 remain.
 
 **Next action:** Run `/bmad-create-story` to create the next story file.
-- First backlog story in sprint order: **Story 7.1** (`7-1-unit-test-score_8_dimensions`)
+- First backlog story in sprint order: **Story 7.2** (`7-2-unit-test-extract_container_files`)
 
 **Then:** Run `/bmad-dev-story` to implement it.
 
-**Note:** Epic 6 work (stories 6.2–6.5) is implemented and reviewed but **uncommitted** as of session end 2026-07-03.
+**Note:** Story 7.1 work (tests, conftest.py, story artifact, deferred-work entries) is **uncommitted** as of 2026-07-03. Notable deferred finding from 7.1 review: fence-stripping in `score_8_dimensions` only handles the exact ```json prefix — other valid LLM output shapes silently zero-score a candidate (see deferred-work.md).
 
 ---
 
