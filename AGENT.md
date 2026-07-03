@@ -121,7 +121,6 @@ This is NOT an educational platform. It is a **hiring tool** for employers to ev
 
 | Story | Description |
 |---|---|
-| 7.2 | Unit test `extract_container_files` (Docker unavailable → `{}`, text filter, 50KB cap) |
 | 7.3 | Unit test hire-recommendation thresholds (all 4 boundaries) |
 | 7.4 | Integration test `GET /api/challenges/<id>/candidates` |
 | 7.5 | Unit test `generate_challenge` with new params (invalid enum → 400) |
@@ -130,14 +129,14 @@ This is NOT an educational platform. It is a **hiring tool** for employers to ev
 
 ## Next Session — Start Here
 
-**Workflow state:** Epics 1–6 are all `done`. Epic 7 (Test Coverage) `in-progress`: Story 7.1 done (dev + code review 2026-07-03, 12 tests green — `tests/test_score_8_dimensions.py` + root `conftest.py` bootstrap the test infra). Stories 7.2–7.5 remain.
+**Workflow state:** Epics 1–6 are all `done`. Epic 7 (Test Coverage) `in-progress`: Stories 7.1 and 7.2 done (dev + code review 2026-07-03; `tests/test_score_8_dimensions.py` + `tests/test_extract_container_files.py`, 28 tests total, root `conftest.py` bootstraps the test infra). Stories 7.3–7.5 remain.
 
 **Next action:** Run `/bmad-create-story` to create the next story file.
-- First backlog story in sprint order: **Story 7.2** (`7-2-unit-test-extract_container_files`)
+- First backlog story in sprint order: **Story 7.3** (`7-3-unit-test-hire-recommendation-thresholds`)
 
 **Then:** Run `/bmad-dev-story` to implement it.
 
-**Note:** Story 7.1 work (tests, conftest.py, story artifact, deferred-work entries) is **uncommitted** as of 2026-07-03. Notable deferred finding from 7.1 review: fence-stripping in `score_8_dimensions` only handles the exact ```json prefix — other valid LLM output shapes silently zero-score a candidate (see deferred-work.md).
+**Note:** Story 7.2 work (tests, story artifact, deferred-work entries) is **uncommitted** as of 2026-07-03 (Story 7.1 was already committed as `09ca7e4`). Notable deferred findings: fence-stripping in `score_8_dimensions` only handles the exact ```json prefix (7.1 review); `extract_container_files` ignores its `workspace` parameter when stripping path prefixes, and its 50KB cap counts raw bytes but stores decoded text (7.2 review) — see deferred-work.md.
 
 ---
 
