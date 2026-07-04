@@ -35,7 +35,7 @@
 # - Dev moves story to 'review', then runs code-review (fresh context, different LLM recommended)
 
 generated: "2026-07-02"
-last_updated: "2026-07-03"  # updated: Story 7.5 done (dev + code review) — Epic 7 complete, entire sprint done
+last_updated: "2026-07-04"  # updated: Story 8.1 done — Gemini CLI pre-authentication gap found + fixed post Phase 2 migration
 project: coding_platforms
 project_key: NOKEY
 tracking_system: file-system
@@ -255,3 +255,53 @@ development_status:
   # field values crash with unhandled AttributeError instead of clean 400.
 
   epic-7-retrospective: optional
+
+  # ─────────────────────────────────────────────────────────────────────────
+  # Epic 8 — Gemini Provider Follow-Up (post Phase 2 migration)
+  # Story 8.1 done as of 2026-07-04.
+  # ─────────────────────────────────────────────────────────────────────────
+  epic-8: in-progress
+
+  8-1-pre-authenticate-gemini-cli-in-student-container: done
+  # Implemented + verified 2026-07-04: found that interactive `gemini` (the
+  # real candidate terminal path) shows an auth-method picker on first launch
+  # even with GEMINI_API_KEY set, unlike headless mode which was already fine.
+  # Fixed via security.auth.selectedType="gemini-api-key" baked into
+  # ~/.gemini/settings.json in docker/Dockerfile.codeserver. Also independently
+  # re-verified guarded/unguarded mode works correctly on Gemini CLI post-migration
+  # (GEMINI.md present -> declines full solutions; absent -> gives full solutions).
+
+  8-2-fix-gemini-json-response-reliability: done
+  # Implemented + verified 2026-07-04: live user hit a JSON-parse error on
+  # POST /api/generate-challenge. Root-caused to two bugs: (1) thinking tokens
+  # eating the max_output_tokens budget (fixed via thinking_budget=0), and
+  # (2) response_mime_type alone unreliable for multi-line starter_code strings
+  # (fixed via response_schema — true structured-output constrained decoding).
+  # LLMService.chat() gained an optional response_schema param; both
+  # generate_challenge() and score_8_dimensions() now pass their schema.
+  # Verified: 22 live calls, 0 failures, vs. a reproducible pre-fix failure.
+
+  8-3-fix-ide-install-code-cli-not-found: done
+  # Implemented + verified 2026-07-04: live user hit "VS Code CLI not found"
+  # running /ide install inside the real code-server terminal (while confirming
+  # Story 8.1's auth fix). Root-caused via installed CLI's bundled source:
+  # /ide install hardcodes a search for a `code` binary; code-server only ships
+  # `code-server`. Fixed with a `code -> code-server` symlink in
+  # docker/Dockerfile.codeserver (code-server supports the same
+  # --install-extension/--force flags). Verified: extension installs
+  # successfully as both root and the real runtime user `coder`; no regression
+  # to headless gemini or the test suite.
+
+  8-4-retry-on-gemini-json-parse-failure: done
+  # Implemented + verified 2026-07-04: live user hit the EXACT SAME error as
+  # Story 8.2 a second time, after that fix was already deployed. Ruled out
+  # stale-server-process and reverted-fix explanations (curl'd the live
+  # server directly - it had the fix and that call succeeded; fresh-process
+  # stress tests also passed). Concluded response_schema reduces but doesn't
+  # eliminate the failure rate. Fixed via EvaluationService._call_llm_for_json(),
+  # a shared retry helper (max 3 attempts) used by both generate_challenge()
+  # and score_8_dimensions() - retries ONLY on JSON-parse/validation failure,
+  # never on genuine LLMService.chat() exceptions (preserves the existing
+  # exact-call-count test for provider-down errors). Verified via a mocked
+  # 2-fail-then-succeed recovery test + live stress runs; full suite unchanged
+  # at 64/64.

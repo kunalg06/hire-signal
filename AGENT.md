@@ -124,7 +124,7 @@ This is NOT an educational platform. It is a **hiring tool** for employers to ev
 - Flag and Override buttons added to Results detail panel (wired to `/flag` and `/override` endpoints)
 
 #### Phase 2 — LLM Provider Migration: OpenRouter/Claude → Gemini (done 2026-07-04)
-- Backend: `app/services/llm_service.py` rewritten from an OpenAI-SDK-over-OpenRouter client to the `google-genai` SDK (`genai.Client` + `models.generate_content`). `LLMService.chat()` signature unchanged, so no caller changes needed.
+- Backend: `app/services/llm_service.py` rewritten from an OpenAI-SDK-over-OpenRouter client to the `google-genai` SDK (`genai.Client` + `models.generate_content`). `LLMService.chat()`'s core signature (`prompt`, `max_tokens`) unchanged; gained an optional `response_schema` param in Story 8.2 below.
 - Config: `app/config.py` — `OPENROUTER_API_KEY`/`OPENROUTER_MODEL`/`OPENROUTER_BASE_URL` replaced with `GEMINI_API_KEY`/`GEMINI_MODEL` (default `gemini-2.5-flash`).
 - `.env` — `GEMINI_API_KEY` + `GEMINI_MODEL` set; unused `ANTHROPIC_API_KEY`/`OPENROUTER_*` entries removed.
 - `requirements.txt` — `anthropic`/`openai` removed, `google-genai` added.
@@ -134,6 +134,36 @@ This is NOT an educational platform. It is a **hiring tool** for employers to ev
 - `session_log_service.py` / `submissions.py` — `interaction_type` default label `claude_cli` → `gemini_cli`; transcript keyword-matching updated.
 - Docs updated: `CLAUDE.md` and this file — all "OpenRouter"/"Claude Code CLI"/"anthropic SDK" architecture-constraint language repointed to Gemini.
 - Verified: real `GEMINI_API_KEY` confirmed valid against `generativelanguage.googleapis.com`; `@google/gemini-cli` confirmed to exist on npm; full pytest suite re-run (still passes — LLM calls are mocked at the `LLMService.chat` level so the provider swap is transparent to tests).
+
+#### Epic 8, Story 8.1 — Pre-Authenticate Gemini CLI in Student Container (done 2026-07-04)
+- Found: Phase 2's own verification used headless mode (`gemini -p "..."`), which works fine with just `GEMINI_API_KEY`. But **interactive** mode — what a candidate actually gets typing `gemini` in the code-server terminal — shows a "choose your authentication method" picker on first launch even with `GEMINI_API_KEY` set, unless an auth method is already recorded in `~/.gemini/settings.json`.
+- Fixed: added `"security": {"auth": {"selectedType": "gemini-api-key"}}` to the baked-in `~/.gemini/settings.json` in `docker/Dockerfile.codeserver`, sourced directly from the installed CLI's own bundled `reference/configuration.md` (version-matched, not the public website). Rebuilt the image and verified: settings.json parses with no error, headless mode still returns correct output.
+- Also independently re-verified guarded/unguarded AI-assistance mode still works correctly on Gemini CLI post-migration: with `/workspace/GEMINI.md` present, Gemini CLI explicitly declines to output complete solution code ("Under the guarded assessment rules of this session, I cannot provide a complete, working code block...") and gives conceptual guidance instead; with no `GEMINI.md`, it gives a complete working solution. No code change needed for this part — verification only.
+- Full details: `_bmad-output/implementation-artifacts/8-1-pre-authenticate-gemini-cli-in-student-container.md`.
+- Residual gap: the interactive-picker-before-fix / no-picker-after-fix behavior could not be captured via automated tooling in this session (ink-based TUI doesn't render reliably through `docker exec -t` without a genuine attached terminal). Recommend one manual pass through the real candidate flow (open the code-server terminal in a browser, type `gemini`) to close this out completely.
+
+#### Epic 8, Story 8.2 — Fix Gemini JSON Response Reliability (done 2026-07-04)
+- Found: a live user hit `Failed to parse Gemini response as JSON: Unterminated string starting at: line 5 column 19 (char 1234)` on the real "Generate with AI" flow. Root-caused to **two distinct bugs**, not one:
+  1. Thinking tokens (gemini-2.5-flash+ is a "thinking" model) draw from the same `max_output_tokens` budget as the visible reply — a long-enough internal reasoning pass silently truncates the JSON before the closing brace. Fixed via `thinking_config=types.ThinkingConfig(thinking_budget=0)`.
+  2. Even with thinking disabled and `response_mime_type='application/json'` set, the model could still emit a raw unescaped literal newline inside the `starter_code` string value (a full multi-line Python file embedded as JSON) — illegal per the JSON spec, breaks `json.loads()`. Reproduced this failure twice independently on the same `easy/bug_fix/game_logic` parameter combination, confirming `response_mime_type` alone isn't sufficient.
+- Fixed: added an optional `response_schema` param to `LLMService.chat()` — Gemini's true structured-output/constrained-decoding schema, not just the mimetype hint. `EvaluationService` now has `_CHALLENGE_RESPONSE_SCHEMA` and `_SCORING_RESPONSE_SCHEMA` class-level dicts, passed into `generate_challenge()` and `score_8_dimensions()` respectively.
+- Verified: 22 live calls (14 direct SDK repro + 8 through the real `generate_challenge()` code path, including 3 repeats of the specific combination that failed before) — 0 failures post-fix. Full pytest suite unchanged at 64/64 (mocks use flexible `lambda *args, **kwargs` signatures, unaffected by the new optional param).
+- Full details: `_bmad-output/implementation-artifacts/8-2-fix-gemini-json-response-reliability.md`.
+
+#### Epic 8, Story 8.3 — Fix `/ide install` "VS Code CLI not found" (done 2026-07-04)
+- Found: while confirming Story 8.1's auth fix live, a user ran `/ide install` inside the real interactive `gemini` session in a code-server terminal and got `VS Code CLI not found. Please ensure 'code' is in your system's PATH.`
+- Root-caused via the installed CLI's own bundled source (`VsCodeInstaller` class): `/ide install` hardcodes a search for a binary literally named `code` — code-server only ships `code-server`, never `code`. Confirmed `code-server --help` supports the identical `--install-extension <id> --force` flags the installer invokes.
+- Fixed: `RUN ln -sf /usr/bin/code-server /usr/local/bin/code` added to `docker/Dockerfile.codeserver`.
+- Verified: rebuilt the image; `code --install-extension google.gemini-cli-vscode-ide-companion --force` succeeded (not just that the binary resolves) as both `root` and the real runtime user `coder`; no regression to headless `gemini -p ...` or the pytest suite.
+- Full details: `_bmad-output/implementation-artifacts/8-3-fix-ide-install-code-cli-not-found.md`.
+
+#### Epic 8, Story 8.4 — Retry on Gemini JSON Parse Failure (done 2026-07-04)
+- Found: a user hit the **exact same error** Story 8.2 fixed — `Failed to parse Gemini response as JSON: Unterminated string starting at: line 5 column 19 (char 1234)` — a second time, after that fix was already live.
+- Ruled out two false leads before touching code: (1) stale server process — `curl`'d the actual live running server directly and it succeeded, proving Story 8.2's fix genuinely was deployed and loaded; (2) reverted fix — `grep` confirmed `response_schema`/`thinking_config`/`response_mime_type` all still present on disk, and a fresh Python process succeeded 8/8 across varied parameters.
+- Conclusion: `response_schema` reduces the malformed-JSON rate a great deal (Story 8.2's 22/22, this story's own 8/8 and 5/5) but doesn't reduce it to zero — it's probabilistic, not a guarantee, for long code-heavy string fields.
+- Fixed: added `EvaluationService._call_llm_for_json()`, a shared helper used by both `generate_challenge()` and `score_8_dimensions()`, retrying up to 3 times **only** on `json.JSONDecodeError`/validation `ValueError` — never on a genuine `LLMService.chat()` exception (network/API error), which still propagates on the first attempt. This distinction matters: an existing test asserts `LLMService.chat` is called exactly once when the provider is down, and blindly retrying that case would both break the test and add pointless latency to an unretryable failure.
+- Verified: a mocked "fails twice then succeeds" scenario recovers correctly on attempt 3; full pytest suite unchanged at 64/64 including the exact-call-count assertion; additional live stress runs (8/8, 5/5) against the real API post-fix.
+- Full details: `_bmad-output/implementation-artifacts/8-4-retry-on-gemini-json-parse-failure.md`.
 
 ---
 

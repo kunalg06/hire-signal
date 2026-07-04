@@ -164,7 +164,7 @@ Accepts either a `submission_id` or a `link_id` (falls back to the most recent s
   "submission_id": "...", "link_id": "...", "assignment_id": "...", "code": "...",
   "submitted_at": "...", "score": 85.0, "feedback": "...", "assignment_title": "...",
   "is_flagged": false, "flag_reason": null, "flag_by": null, "flagged_at": null,
-  "instructions_md": "...", "claude_logs": "No Claude session logs available",
+  "instructions_md": "...", "gemini_logs": "No Gemini session logs available",
   "dimensions": {"problem_decomposition": {"score": 90, "rationale": "...", "scoring_method": "llm_judge"}},
   "hire_evaluation": {
     "composite_score": 85.0, "hire_recommendation": "strong_hire",

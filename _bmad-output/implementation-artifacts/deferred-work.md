@@ -1,5 +1,9 @@
 # Deferred Work
 
+## Deferred from: 8-1-pre-authenticate-gemini-cli-in-student-container (2026-07-04)
+
+- **Interactive-picker fix not manually confirmed in a real browser terminal** (`docker/Dockerfile.codeserver`): The `security.auth.selectedType: "gemini-api-key"` fix is sourced directly from the installed CLI's own bundled, version-matched docs and doesn't regress headless mode (both verified live). But actually watching the interactive auth picker disappear inside a real terminal couldn't be automated in this session — `docker exec -t` without a genuinely attached terminal doesn't reliably drive Gemini CLI's ink-based interactive UI (attempts hung). Recommended: one manual pass — generate a candidate link, open the code-server terminal in an actual browser, type `gemini`, confirm no auth-method picker appears before fully closing this out.
+
 ## Deferred from: code review of 6-5-guarded-mode-claude-restrictions (2026-07-03)
 
 - **Guarded-mode injection failure is silent** (`app/services/docker_service.py`, `inject_workspace_files()`): found during the re-review after the chmod-skip patch. If the `GEMINI.md` write itself fails (transient Docker/disk issue — distinct from a candidate deliberately deleting the file post-injection), the function logs a debug-level warning and link generation proceeds normally. No employer or candidate is told the assessment silently ran unguarded. Future story: surface `ai_assistance_mode` and injection success/failure on the teacher dashboard / submission record so a failed guarded-mode injection is visible after the fact.

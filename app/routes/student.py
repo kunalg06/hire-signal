@@ -301,6 +301,17 @@ def student_dashboard(link_id):
             animation: spin 0.8s linear infinite;
             margin: 0 auto 20px;
         }}
+
+        /* ── Results: 8-dimension breakdown ── */
+        .dim-row {{ padding: 10px 0; border-bottom: 1px solid #f0f0f0; text-align: left; }}
+        .dim-row:last-child {{ border-bottom: none; }}
+        .dim-row-head {{ display: flex; align-items: center; gap: 10px; margin-bottom: 4px; }}
+        .dim-name {{ font-weight: 600; color: #333; font-size: 0.85em; flex: 0 0 150px; }}
+        .dim-bar-bg {{ flex: 1; height: 7px; background: #e8e8f0; border-radius: 4px; }}
+        .dim-bar-fill {{ height: 100%; border-radius: 4px; background: linear-gradient(90deg, #667eea, #764ba2); transition: width 0.6s ease; }}
+        .dim-score {{ flex: 0 0 30px; text-align: right; font-weight: 700; color: #333; font-size: 0.85em; }}
+        .dim-rationale {{ color: #666; font-size: 0.8em; line-height: 1.5; }}
+        .result-section-label {{ font-size: 0.72em; font-weight: 700; color: #667eea; letter-spacing: .06em; margin-bottom: 6px; text-align: left; }}
     </style>
 </head>
 <body>
@@ -565,19 +576,47 @@ def student_dashboard(link_id):
             'You can close this tab — your employer will be notified when results are ready.</div>';
     }}
 
+    const DIM_LABELS = {{
+        problem_decomposition:     'Problem Decomposition',
+        first_principles_thinking: 'First-Principles Thinking',
+        creative_problem_solving:  'Creative Problem Solving',
+        iteration_quality:         'Iteration Quality',
+        debugging_with_ai:         'Debugging with AI',
+        architecture_decisions:    'Architecture Decisions',
+        communication_clarity:     'Communication Clarity',
+        token_efficiency:          'Token Efficiency',
+    }};
+
     function showSubmittedResults(data) {{
-        const rec       = (data.hire_evaluation && data.hire_evaluation.hire_recommendation) || 'unknown';
-        const rawScore  = data.hire_evaluation != null && data.hire_evaluation.composite_score != null ? data.hire_evaluation.composite_score : (data.score || 0);
+        const hire      = data.hire_evaluation || {{}};
+        const rec       = hire.hire_recommendation || 'unknown';
+        const rawScore  = hire.composite_score != null ? hire.composite_score : (data.score || 0);
         const score     = Number.isFinite(Number(rawScore)) ? Math.round(Number(rawScore)) : 0;
-        const fb     = escHtml(data.feedback || '');
+        const narrative = escHtml(hire.recommendation_rationale || '');
+        const dims      = data.dimensions || {{}};
         const colors = {{ strong_hire:'#2e7d32', hire:'#1565c0', select:'#e65100', pass:'#795548' }};
         const labels = {{ strong_hire:'Strong Hire', hire:'Hire', select:'Select', pass:'Pass' }};
         const color  = colors[rec] || '#9e9e9e';
         const label  = escHtml(labels[rec] || rec);
+
+        const dimRows = Object.keys(DIM_LABELS).map(function(dim) {{
+            const d = dims[dim] || {{}};
+            const s = Math.min(100, Math.max(0, Math.round(Number(d.score) || 0)));
+            return '<div class="dim-row">' +
+                '<div class="dim-row-head">' +
+                    '<span class="dim-name">' + DIM_LABELS[dim] + '</span>' +
+                    '<div class="dim-bar-bg"><div class="dim-bar-fill" style="width:' + s + '%;"></div></div>' +
+                    '<span class="dim-score">' + s + '</span>' +
+                '</div>' +
+                (d.rationale ? '<div class="dim-rationale">' + escHtml(d.rationale) + '</div>' : '') +
+            '</div>';
+        }}).join('');
+
+        document.getElementById('submittedCard').style.maxWidth = '640px';
         document.getElementById('submittedCard').innerHTML =
             '<div style="font-size:3em;margin-bottom:16px;">complete</div>' +
             '<h2 style="color:#333;font-size:1.5em;margin-bottom:20px;">Evaluation Complete</h2>' +
-            '<div style="display:flex;justify-content:center;gap:16px;margin-bottom:20px;">' +
+            '<div style="display:flex;justify-content:center;gap:16px;margin-bottom:24px;">' +
                 '<div style="text-align:center;padding:16px 24px;border:2px solid #667eea;border-radius:8px;">' +
                     '<div style="font-size:0.72em;font-weight:700;color:#667eea;letter-spacing:.06em;margin-bottom:4px;">SCORE</div>' +
                     '<div style="font-size:2.5em;font-weight:800;color:#333;">' + score + '</div>' +
@@ -587,7 +626,16 @@ def student_dashboard(link_id):
                     '<div style="font-size:1.15em;font-weight:800;color:' + color + ';margin-top:4px;">' + label + '</div>' +
                 '</div>' +
             '</div>' +
-            (fb ? '<p style="color:#555;line-height:1.65;font-size:0.9em;text-align:left;margin-bottom:16px;padding:12px 14px;background:#f8f9fc;border-radius:8px;">' + fb + '</p>' : '') +
+            (narrative ?
+                '<div style="margin-bottom:20px;">' +
+                    '<div class="result-section-label">Overall Assessment</div>' +
+                    '<p style="color:#555;line-height:1.65;font-size:0.9em;text-align:left;margin:0;padding:12px 14px;background:#f8f9fc;border-radius:8px;">' + narrative + '</p>' +
+                '</div>'
+            : '') +
+            '<div style="margin-bottom:20px;">' +
+                '<div class="result-section-label">8-Dimension Breakdown</div>' +
+                dimRows +
+            '</div>' +
             '<div style="background:#f0f2ff;border-radius:8px;padding:14px 18px;font-size:0.85em;color:#667eea;font-weight:600;">' +
             'Your employer has been notified. You may close this tab.</div>';
     }}

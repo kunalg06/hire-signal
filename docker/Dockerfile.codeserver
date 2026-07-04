@@ -13,6 +13,13 @@ RUN apt-get update && apt-get install -y \
 # Install official Gemini CLI via npm
 RUN npm install -g @google/gemini-cli
 
+# Gemini CLI's "/ide install" companion-extension installer hardcodes a search
+# for a binary literally named `code` (VS Code's CLI) — code-server only ships
+# `code-server`, so /ide install fails with "VS Code CLI not found" otherwise.
+# code-server accepts the same --install-extension flag, so this symlink is
+# enough for /ide install to succeed (verified live: extension installs cleanly).
+RUN ln -sf /usr/bin/code-server /usr/local/bin/code
+
 # Install Python dependencies
 RUN pip3 install --break-system-packages google-genai requests
 
@@ -27,9 +34,12 @@ RUN mkdir -p ~/.config/code-server && \
     echo "auth: none" >> ~/.config/code-server/config.yaml && \
     echo "cert: false" >> ~/.config/code-server/config.yaml
 
-# Configure Gemini CLI to only use gemini-2.5-flash
+# Configure Gemini CLI: pin the model, and pre-select "gemini-api-key" as the
+# auth method so the CLI doesn't stop to show an interactive auth-method picker
+# on first launch (it does this even when GEMINI_API_KEY is set, unless a
+# selected type is already recorded here) — see deferred-work.md / Story 8.1.
 RUN mkdir -p ~/.gemini && \
-    echo '{"model": {"name": "gemini-2.5-flash"}}' > ~/.gemini/settings.json
+    echo '{"model": {"name": "gemini-2.5-flash"}, "security": {"auth": {"selectedType": "gemini-api-key"}}}' > ~/.gemini/settings.json
 
 # Set environment variable to restrict model selection
 ENV GEMINI_MODEL=gemini-2.5-flash

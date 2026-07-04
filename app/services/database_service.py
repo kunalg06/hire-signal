@@ -179,7 +179,7 @@ class DatabaseService:
             return cursor.fetchall()
 
     def get_session_logs(self, submission_id):
-        """Get Claude session logs for submission"""
+        """Get Gemini session logs for submission"""
         with self.db.get_connection() as conn:
             cursor = conn.cursor()
             cursor.execute('''

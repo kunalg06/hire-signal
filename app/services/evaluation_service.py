@@ -30,6 +30,87 @@ class EvaluationService:
         "select":      55,
     }
 
+    # ── Gemini response_schema for score_8_dimensions() ───────────────────
+    _SCORING_RESPONSE_SCHEMA = {
+        "type": "OBJECT",
+        "properties": {
+            "dimensions": {
+                "type": "OBJECT",
+                "properties": {
+                    dim: {
+                        "type": "OBJECT",
+                        "properties": {
+                            "score": {"type": "NUMBER"},
+                            "rationale": {"type": "STRING"},
+                        },
+                        "required": ["score", "rationale"],
+                    }
+                    for dim in DIMENSION_WEIGHTS
+                },
+                "required": list(DIMENSION_WEIGHTS.keys()),
+            },
+            "recommendation_rationale": {"type": "STRING"},
+        },
+        "required": ["dimensions", "recommendation_rationale"],
+    }
+
+    # ── Gemini response_schema for generate_challenge() ───────────────────
+    _CHALLENGE_RESPONSE_SCHEMA = {
+        "type": "OBJECT",
+        "properties": {
+            "title": {"type": "STRING"},
+            "description": {"type": "STRING"},
+            "evaluation_criteria": {"type": "STRING"},
+            "starter_code": {"type": "STRING"},
+        },
+        "required": ["title", "description", "evaluation_criteria", "starter_code"],
+    }
+
+    @staticmethod
+    def _call_llm_for_json(prompt: str, max_tokens: int, response_schema: dict,
+                            validate=None, max_retries: int = 3) -> dict:
+        """
+        Call LLMService.chat() and parse the reply as JSON, retrying with a
+        fresh generation on parse/validation failure only.
+
+        response_schema (Gemini's structured-output mode) makes malformed
+        JSON rare but not eliminated for long string fields (e.g. multi-line
+        starter_code) — retrying is far more reliable than trying to repair
+        a broken response, since each generation is an independent draw.
+
+        If LLMService.chat() itself raises (network/API error), that
+        propagates immediately with NO retry — retrying a genuinely broken
+        call adds latency for no benefit, and callers rely on this (e.g. a
+        test asserts the LLM is invoked exactly once when the provider is
+        down).
+
+        validate: optional callable(dict) -> None, raising ValueError if the
+        parsed dict doesn't satisfy caller-specific requirements (e.g.
+        missing required keys). Treated the same as a parse failure for
+        retry purposes.
+        """
+        last_error = None
+        for attempt in range(max_retries):
+            response_text = LLMService.chat(
+                prompt, max_tokens=max_tokens, response_schema=response_schema,
+            )
+            if response_text.startswith("```"):
+                response_text = response_text.split("```json")[-1].split("```")[0].strip()
+                if not response_text:
+                    response_text = response_text.split("```")[-2].strip()
+            try:
+                parsed = json.loads(response_text)
+                if validate is not None:
+                    validate(parsed)
+                return parsed
+            except (json.JSONDecodeError, ValueError) as e:
+                last_error = e
+                logger.warning(
+                    "Gemini JSON response invalid (attempt %d/%d): %s",
+                    attempt + 1, max_retries, e,
+                )
+        raise last_error
+
     @staticmethod
     def extract_container_files(container_id: str,
                                 workspace: str = '/workspace') -> dict:
@@ -40,7 +121,7 @@ class EvaluationService:
         """
         TEXT_EXTS = {'.py', '.js', '.ts', '.md', '.txt', '.json',
                      '.yaml', '.yml', '.sh', '.sql', '.toml', '.cfg'}
-        MAX_TOTAL_BYTES = 50 * 1024  # 50 KB hard cap sent to Claude
+        MAX_TOTAL_BYTES = 50 * 1024  # 50 KB hard cap sent to Gemini
 
         try:
             from app.services.docker_service import DockerService
@@ -84,7 +165,7 @@ class EvaluationService:
                            file_snapshot: dict,
                            assignment: dict) -> dict:
         """
-        Call Claude once to score all 8 AI-collaboration dimensions.
+        Call Gemini once to score all 8 AI-collaboration dimensions.
         Returns the full parsed result dict.  On any failure returns a
         safe default (all dimensions score=0, recommendation='pass').
         """
@@ -101,7 +182,7 @@ class EvaluationService:
                 )
             logs_text = '\n'.join(log_lines)
         else:
-            logs_text = "No Claude session logs recorded for this submission."
+            logs_text = "No Gemini session logs recorded for this submission."
 
         # ── Format file snapshot ─────────────────────────────────────────
         if file_snapshot:
@@ -194,14 +275,10 @@ Respond ONLY with valid JSON — no markdown fences, no prose:
             }
 
         try:
-            response_text = LLMService.chat(scoring_prompt, max_tokens=2000)
-
-            # Strip markdown fences if present
-            if response_text.startswith("```"):
-                response_text = response_text.split("```json")[-1].split("```")[0].strip()
-
-            result = json.loads(response_text)
-
+            result = EvaluationService._call_llm_for_json(
+                scoring_prompt, max_tokens=2000,
+                response_schema=EvaluationService._SCORING_RESPONSE_SCHEMA,
+            )
         except Exception as e:
             logger.error("8-dimension scoring error: %s", e)
             return _default_result(f"Scoring error: {str(e)[:120]}")
@@ -213,7 +290,7 @@ Respond ONLY with valid JSON — no markdown fences, no prose:
                 dims[dim] = {"score": 0, "rationale": "dimension missing from response"}
         result["dimensions"] = dims
 
-        # ── Python-enforced composite + thresholds (never trust Claude's) ─
+        # ── Python-enforced composite + thresholds (never trust Gemini's) ─
         composite = sum(
             dims[d]["score"] * w
             for d, w in EvaluationService.DIMENSION_WEIGHTS.items()
@@ -297,7 +374,7 @@ Respond ONLY with valid JSON — no markdown fences, no prose:
                            challenge_type: str = 'feature_extension',
                            skill_area: str = 'api_integration',
                            ai_assistance_mode: str = 'unguarded') -> dict:
-        """Generate a market-aligned coding challenge using Claude AI"""
+        """Generate a market-aligned coding challenge using Gemini"""
         mode_instruction = (
             "The starter code must contain deliberate gaps marked with TODO comments and partial "
             "logic that rewards candidates who use AI tools strategically to fill them. Leave "
@@ -383,25 +460,19 @@ Respond ONLY with valid JSON — no markdown fences, no prose before or after:
   "starter_code": "complete Python file ready to be placed in the candidate workspace"
 }}"""
 
-        try:
-            response_text = LLMService.chat(generation_prompt, max_tokens=3000)
-
-            # Strip markdown fences if model wrapped the JSON anyway
-            if response_text.startswith("```"):
-                response_text = response_text.split("```json")[-1].split("```")[0].strip()
-                if not response_text:
-                    response_text = response_text.split("```")[-2].strip()
-
-            challenge = json.loads(response_text)
-
+        def _validate_challenge_fields(challenge: dict) -> None:
             required_fields = ['title', 'description', 'evaluation_criteria', 'starter_code']
             missing = [f for f in required_fields if f not in challenge]
             if missing:
-                raise ValueError(f"Missing fields in Claude response: {missing}")
+                raise ValueError(f"Missing fields in Gemini response: {missing}")
 
-            return challenge
-
+        try:
+            return EvaluationService._call_llm_for_json(
+                generation_prompt, max_tokens=3000,
+                response_schema=EvaluationService._CHALLENGE_RESPONSE_SCHEMA,
+                validate=_validate_challenge_fields,
+            )
         except json.JSONDecodeError as e:
-            raise Exception(f"Failed to parse Claude response as JSON: {str(e)}")
+            raise Exception(f"Failed to parse Gemini response as JSON: {str(e)}")
         except Exception as e:
             raise Exception(f"Challenge generation failed: {str(e)}")

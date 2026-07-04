@@ -186,10 +186,10 @@ def submit_with_files(link_id):
         file_size = len(content.encode('utf-8')) if isinstance(content, str) else len(content)
         db_service.add_submission_file(file_id, submission_id, filename, content, file_size)
 
-    # Parse and store Claude session logs if available
+    # Parse and store Gemini session logs if available
     session_logs = []
 
-    if 'claude_session.log' in files_dict:
+    if 'gemini_session.log' in files_dict:
         try:
             session_logs = SessionLogService.parse_session_log(files_dict['claude_session.log'])
 
@@ -274,12 +274,12 @@ def get_submission(submission_id_or_link):
     files = db_service.get_submission_files(submission_id)
 
     instructions_md = ""
-    claude_logs = ""
+    gemini_logs = ""
     for filename, content in files:
         if filename == 'instructions.md':
             instructions_md = content
-        elif filename == 'claude_session.log':
-            claude_logs = content
+        elif filename == 'gemini_session.log':
+            gemini_logs = content
 
     # Fetch 8-dimension scores
     dim_rows = db_service.get_dimension_scores(submission_id)
@@ -322,7 +322,7 @@ def get_submission(submission_id_or_link):
         "flagged_at":  row[13] if len(row) > 13 else None,
         # Supporting content
         "instructions_md":  instructions_md,
-        "claude_logs":      claude_logs or "No Claude session logs available",
+        "gemini_logs":      gemini_logs or "No Gemini session logs available",
         # 8-dimension scoring
         "dimensions":       dimensions,
         "hire_evaluation":  hire_data,
@@ -330,7 +330,7 @@ def get_submission(submission_id_or_link):
 
 @submissions_bp.route('/session-logs/<submission_id>', methods=['GET'])
 def get_session_logs(submission_id):
-    """Get Claude session logs for a submission"""
+    """Get Gemini session logs for a submission"""
     rows = db_service.get_session_logs(submission_id)
 
     logs = [
