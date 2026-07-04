@@ -138,6 +138,14 @@ python -m pytest tests/ -v
 
 64 tests, no API key or Docker daemon required — every LLM/Docker call is mocked.
 
+### Running the performance benchmark
+
+```bash
+python scripts/benchmark.py
+```
+
+Real (non-mocked) numbers: SQLite throughput, Flask endpoint latency, and live Gemini API calls — requires `GEMINI_API_KEY`; Docker section auto-skips if the daemon isn't reachable. See [Performance Metrics](#performance-metrics-local-testing) below for the last measured run.
+
 ### Docker (for live candidate containers)
 
 Build the candidate-container image and run the app normally — this is the actual dev path, **not** `docker-compose` (see `docs/ARCHITECTURE.md` for why `docker/docker-compose.yml` is a legacy/unused orchestration file in this codebase):
@@ -332,6 +340,48 @@ AI scores are one signal in a hiring decision, not the decision itself. The plat
 - Every override is logged for calibration in an append-only table — the original AI verdict is never modified
 - **Visibility floor**: score affects rank only — all candidates remain visible regardless of score
 - AI Beta banner is always shown on the employer dashboard
+
+---
+
+## Performance Metrics (Local Testing)
+
+Measured with `python scripts/benchmark.py` — a real (non-mocked) benchmark against the actual Gemini API, real SQLite writes, and the real Flask routes via an isolated in-process test client. Raw results: `scripts/benchmark_results.json`. Run it yourself; these aren't estimates.
+
+| Metric | Value |
+|---|---|
+| Challenge generation (`generate_challenge`, end-to-end, real Gemini call) | 10.2s mean · p50 10.9s · p95 13.1s |
+| 8-dimension scoring (`score_8_dimensions`, end-to-end, real Gemini call) | 3.9s mean · p50 3.8s · p95 4.2s |
+| Raw Gemini round-trip (minimal prompt, isolates network+model latency) | 1.2s mean · p50 1.0s · p95 2.2s |
+| Candidate ranking endpoint, 30 candidates (`GET /api/challenges/<id>/candidates`) | 180ms mean · p50 177ms · p95 211ms |
+| Challenge catalog list, 20 rows (`GET /api/challenges`) | 1.0ms mean |
+| Assignment creation, write path (`POST /api/assignments`) | 4.0ms mean |
+| SQLite full submission write (submission + 8 dim rows + hire eval) | 37.9ms mean |
+| SQLite dimension-score read (8 rows) | 0.7ms mean |
+| Docker student-container spin-up (`docker run`) | 421ms mean · p50 439ms |
+| Sequential throughput — challenge generation | ~5.9 challenges/min |
+| Sequential throughput — candidate evaluation | ~15.4 evaluations/min |
+| Gemini API cost — challenge generation (548 in / 1,528 out tokens) | ~$0.004/call |
+| Gemini API cost — candidate evaluation (933 in / 635 out tokens) | ~$0.002/call |
+
+*gemini-2.5-flash, structured-output mode (`response_schema`), thinking disabled. Cost computed from measured token counts against [published per-1M-token pricing](https://ai.google.dev/gemini-api/docs/pricing) ($0.30 in / $2.50 out, standard tier).*
+
+---
+
+## Production Optimizations
+
+This runs on a single-process Flask dev server + SQLite by design — it's a hiring tool for a handful of employers evaluating tens of candidates per posting, not a high-QPS service. Benchmarking it anyway surfaced concrete, fixable bottlenecks worth calling out:
+
+1. **N+1 query in candidate ranking (found via benchmarking, not guessed).** `GET /api/challenges/<id>/candidates` fetches all candidates in one JOIN, then loops and issues one *more* query per candidate for its 8 dimension scores — measured at 180ms for 30 candidates, versus <1ms for the challenge-list endpoint that has no such loop. Fix: one `WHERE submission_id IN (...)` query instead of N, cutting total query count from `N + 2` to a flat `3` regardless of candidate count.
+
+2. **No connection pooling — and no real concurrent-write story.** Every `DatabaseService` call opens a fresh `sqlite3.connect()` and closes it; SQLite's single-writer lock is fine for one dev process but becomes a real bottleneck the moment two evaluations try to write near-simultaneously. `app/config.py` already has a dormant Postgres-shaped `ProductionConfig` — migrating to Postgres + a real connection pool removes both the lock and the per-call connection overhead (measured at ~38ms per full submission write, almost entirely connection setup, not the insert itself).
+
+3. **Single-worker WSGI server.** `run.py` calls `app.run(debug=...)` with no `threaded=True` and no worker count — Werkzeug's dev server handles one request at a time. A slow Gemini call (10s+ measured for challenge generation) from one employer blocks every other request in the process. Production needs gunicorn/uWSGI with multiple workers.
+
+4. **Gemini calls run synchronously on the request thread.** Fine at today's scale (an employer clicking "Generate" expects a few seconds' wait), but a production version would move both `generate_challenge()` (10.2s mean) and `score_8_dimensions()` (3.9s mean) onto a task queue (Celery/RQ + Redis), with the frontend polling for completion — the student-submission flow already polls (`GET /api/submission/<id>` every 3s), so the pattern extends naturally.
+
+5. **Container pool instead of cold-spin per link.** Docker container creation benchmarked at 421ms — not a problem today, but at bulk-invite volume (hundreds of candidate links generated at once), pre-warming a small pool of idle `code-server` containers and handing one out per link would remove that latency from the employer-facing "generate link" action entirely.
+
+6. **Batch the LLM calls at volume.** Cost isn't the constraint here — $0.004/challenge and $0.002/evaluation means evaluating 500 candidates costs about $1. Gemini's own rate limits are the real ceiling at scale. Gemini's batch API prices at exactly half the standard rate ($0.15 in / $1.25 out per 1M tokens) — worth routing bulk evaluation runs through it, combined with the retry-with-backoff logic this project already has (`EvaluationService._call_llm_for_json()`) extended to handle 429s, not just malformed JSON.
 
 ---
 
