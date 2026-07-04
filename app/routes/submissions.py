@@ -200,7 +200,7 @@ def submit_with_files(link_id):
                     log_id,
                     submission_id,
                     log_entry.get('timestamp'),
-                    log_entry.get('interaction_type', 'claude_cli'),
+                    log_entry.get('interaction_type', 'gemini_cli'),
                     log_entry.get('prompt', ''),
                     log_entry.get('response_summary', ''),
                     log_entry.get('file_changes_count', 0),

@@ -6,7 +6,7 @@
 
 ## What This Project Is
 
-**AI Hire-Readiness Evaluation Platform** — employers post coding challenges, candidates complete them in isolated Docker containers with browser-based VS Code + Claude API access. The platform evaluates candidates across **8 AI-collaboration dimensions** and produces a hire recommendation (strong_hire / hire / select / pass) with a side-by-side candidate comparison view.
+**AI Hire-Readiness Evaluation Platform** — employers post coding challenges, candidates complete them in isolated Docker containers with browser-based VS Code + Gemini API access. The platform evaluates candidates across **8 AI-collaboration dimensions** and produces a hire recommendation (strong_hire / hire / select / pass) with a side-by-side candidate comparison view.
 
 This is NOT an educational platform. It is a **hiring tool** for employers to evaluate AI-assisted coding competency.
 
@@ -25,11 +25,11 @@ This is NOT an educational platform. It is a **hiring tool** for employers to ev
   8. Token Efficiency (10%)
 
 - **Hire recommendations**: `strong_hire >= 85`, `hire >= 70`, `select >= 55`, `pass < 55`
-  - Thresholds enforced in Python — never trust Claude's threshold determination alone
+  - Thresholds enforced in Python — never trust Gemini's threshold determination alone
 
 - **Human override policy**: AI scores inform, never decide. Employers can flag/override any score. Every override logged as calibration data. Visibility floor — score affects rank, never hides candidates.
 
-- **Guarded vs Unguarded mode**: Unguarded = Claude can give full solutions. Guarded = Claude restricted to guidance only.
+- **Guarded vs Unguarded mode**: Unguarded = Gemini can give full solutions. Guarded = Gemini restricted to guidance only.
 
 - **Challenge types**: `bug_fix | feature_extension | refactoring | optimization`
 - **Skill areas**: `api_integration | rate_limiting | data_pipeline | llm_usage | server_monitoring | game_logic`
@@ -123,6 +123,18 @@ This is NOT an educational platform. It is a **hiring tool** for employers to ev
 - Removed duplicate `viewInResults()` definition
 - Flag and Override buttons added to Results detail panel (wired to `/flag` and `/override` endpoints)
 
+#### Phase 2 — LLM Provider Migration: OpenRouter/Claude → Gemini (done 2026-07-04)
+- Backend: `app/services/llm_service.py` rewritten from an OpenAI-SDK-over-OpenRouter client to the `google-genai` SDK (`genai.Client` + `models.generate_content`). `LLMService.chat()` signature unchanged, so no caller changes needed.
+- Config: `app/config.py` — `OPENROUTER_API_KEY`/`OPENROUTER_MODEL`/`OPENROUTER_BASE_URL` replaced with `GEMINI_API_KEY`/`GEMINI_MODEL` (default `gemini-2.5-flash`).
+- `.env` — `GEMINI_API_KEY` + `GEMINI_MODEL` set; unused `ANTHROPIC_API_KEY`/`OPENROUTER_*` entries removed.
+- `requirements.txt` — `anthropic`/`openai` removed, `google-genai` added.
+- Student container (`docker/Dockerfile.codeserver`): `@anthropic-ai/claude-code` → `@google/gemini-cli`; model pinned to `gemini-2.5-flash` via `~/.gemini/settings.json` + `GEMINI_MODEL` env var (same honor-system restriction pattern as before, not hard-enforced).
+- `docker_service.py`'s `create_container()` now passes `GEMINI_API_KEY`/`GEMINI_MODEL` into the container at launch (`-e` flags) — previously no API key was wired into the container at all for Claude Code CLI, a pre-existing gap this migration also fixed.
+- Guarded-mode context file renamed `CLAUDE.md` → `GEMINI.md` (Gemini CLI's auto-loaded context-file convention) in `inject_workspace_files()`.
+- `session_log_service.py` / `submissions.py` — `interaction_type` default label `claude_cli` → `gemini_cli`; transcript keyword-matching updated.
+- Docs updated: `CLAUDE.md` and this file — all "OpenRouter"/"Claude Code CLI"/"anthropic SDK" architecture-constraint language repointed to Gemini.
+- Verified: real `GEMINI_API_KEY` confirmed valid against `generativelanguage.googleapis.com`; `@google/gemini-cli` confirmed to exist on npm; full pytest suite re-run (still passes — LLM calls are mocked at the `LLMService.chat` level so the provider swap is transparent to tests).
+
 ---
 
 ### ❌ Not Built Yet (backlog)
@@ -149,7 +161,7 @@ Known gaps are tracked in `_bmad-output/implementation-artifacts/deferred-work.m
 - `hire_recommendation` branches on the pre-round composite while `composite_score` stores the post-round value — the two can visibly disagree near a threshold, e.g. a stored `85.0` labeled `"hire"` (7.3)
 - `POST /api/generate-challenge` returns 200 even when catalog persistence silently fails, with no `persisted` field for the client to detect it (7.5)
 - `POST /api/generate-challenge` (and likely sibling routes) crash with an unhandled `AttributeError` on non-string JSON field values (e.g. `{"difficulty": null}`) instead of a clean 400 (7.5)
-- Guarded mode (`ai_assistance_mode='guarded'`) is honor-system-only — a candidate with shell access can delete/edit the injected `CLAUDE.md` (6.5), accepted as v1 scope
+- Guarded mode (`ai_assistance_mode='guarded'`) is honor-system-only — a candidate with shell access can delete/edit the injected `GEMINI.md` (6.5), accepted as v1 scope
 
 **Housekeeping note:** Story 7.4 introduced a harmless side-effect file `data/test_assignments.db` (created by `create_app("testing")`'s own schema init) — not a bug, expected from `TestingConfig`, safe to delete or ignore.
 
@@ -167,7 +179,7 @@ Known gaps are tracked in `_bmad-output/implementation-artifacts/deferred-work.m
 | DB schema / init | `app/models/database.py` |
 | All DB queries | `app/services/database_service.py` |
 | Evaluation + challenge gen | `app/services/evaluation_service.py` |
-| LLM wrapper (OpenRouter) | `app/services/llm_service.py` |
+| LLM wrapper (Gemini) | `app/services/llm_service.py` |
 | Submission routes | `app/routes/submissions.py` |
 | Challenge routes | `app/routes/challenges.py` |
 | Analytics routes | `app/routes/analytics.py` |
@@ -179,7 +191,7 @@ Known gaps are tracked in `_bmad-output/implementation-artifacts/deferred-work.m
 ## Architecture Constraints — Read Before Writing Any Code
 
 - **SQLite only** — no Postgres, no Redis. Raw SQL, no ORM. `CREATE TABLE IF NOT EXISTS` is the migration strategy; `ALTER TABLE` via `try/except sqlite3.OperationalError` (not bare `except Exception`).
-- **LLM via OpenRouter** — `LLMService` in `app/services/llm_service.py`; model via `OPENROUTER_MODEL` env var. Do NOT use `anthropic` SDK directly.
+- **LLM via Gemini** — `LLMService` in `app/services/llm_service.py`; model via `GEMINI_MODEL` env var. Do NOT use the `google-genai` SDK directly outside `llm_service.py`.
 - **Docker via subprocess CLI** — `docker` Python SDK incompatible with requests≥2.32 on Python 3.14. All Docker ops go through `DockerService` in `docker_service.py`.
 - **Container port range: 7100–7900** — ports below 7000 (esp. 6000–6007) are Chrome-blocked.
 - **No non-ASCII in `print()` on Windows** — cp1252 console; Unicode arrows silently abort execution. ASCII only in print/log strings.
@@ -189,7 +201,7 @@ Known gaps are tracked in `_bmad-output/implementation-artifacts/deferred-work.m
 - **`hire_evaluations.composite_score` and `.recommendation` are read-only after creation** — override only writes `is_overridden`, `override_recommendation`, `override_rationale`.
 - **`dim_averages` uses `is_evaluated` filter, not dict truthiness** — and skips None scores (no zero-default).
 - **No sandbox on student iframe** — code-server uses service workers; sandbox blocks them.
-- **Guarded mode is honor-system-only (v1)** — enforced via `/workspace/CLAUDE.md` injection; students can delete/edit it. Accepted scope; hard enforcement deferred.
+- **Guarded mode is honor-system-only (v1)** — enforced via `/workspace/GEMINI.md` injection; students can delete/edit it. Accepted scope; hard enforcement deferred.
 - **Module-level `db_service = DatabaseService()`** in each route file — instantiated at import time.
 - **Windows cp1252 print constraint** — see above; applies to ALL print/logging statements.
 

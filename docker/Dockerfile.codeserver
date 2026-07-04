@@ -10,11 +10,11 @@ RUN apt-get update && apt-get install -y \
     curl \
     && rm -rf /var/lib/apt/lists/*
 
-# Install official Claude Code CLI via npm
-RUN npm install -g @anthropic-ai/claude-code
+# Install official Gemini CLI via npm
+RUN npm install -g @google/gemini-cli
 
 # Install Python dependencies
-RUN pip3 install --break-system-packages anthropic requests
+RUN pip3 install --break-system-packages google-genai requests
 
 # Set workspace and log directory permissions
 RUN mkdir -p /workspace /app/logs && chmod 777 /workspace /app/logs
@@ -27,13 +27,16 @@ RUN mkdir -p ~/.config/code-server && \
     echo "auth: none" >> ~/.config/code-server/config.yaml && \
     echo "cert: false" >> ~/.config/code-server/config.yaml
 
-# Configure Claude CLI to only use haiku-4.5 model
-RUN mkdir -p ~/.claude && \
-    echo "model: claude-haiku-4-5-20251001" > ~/.claude/config.yaml && \
-    echo "# Only haiku-4.5 model allowed in student environment" >> ~/.claude/config.yaml
+# Configure Gemini CLI to only use gemini-2.5-flash
+RUN mkdir -p ~/.gemini && \
+    echo '{"model": {"name": "gemini-2.5-flash"}}' > ~/.gemini/settings.json
 
 # Set environment variable to restrict model selection
-ENV CLAUDE_MODEL=claude-haiku-4-5-20251001
+ENV GEMINI_MODEL=gemini-2.5-flash
+
+# /workspace is a fresh per-candidate container, not a shared/untrusted checkout —
+# trust it by default so gemini-cli runs headlessly without an interactive prompt
+ENV GEMINI_CLI_TRUST_WORKSPACE=true
 
 EXPOSE 8080
 WORKDIR /workspace

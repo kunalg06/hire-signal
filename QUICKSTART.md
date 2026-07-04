@@ -33,7 +33,7 @@ Open your browser and go to: **http://localhost:8000**
    - **Difficulty:** Select `easy`
    - Click `Generate with AI`
 
-2. Wait 10-15 seconds for Claude to generate the challenge
+2. Wait 10-15 seconds for Gemini to generate the challenge
 
 3. You'll see:
    - Generated title (e.g., "Calculate Factorial of a Number")
@@ -102,11 +102,11 @@ curl http://localhost:8000/api/assignments
 
 | Feature | Description | Where to Test |
 |---------|-------------|-------|
-| **AI Challenge Generation** | Claude generates challenges from problem statements | Left panel of dashboard |
+| **AI Challenge Generation** | Gemini generates challenges from problem statements | Left panel of dashboard |
 | **Assignment Management** | Create, list, view assignments | Dashboard |
 | **Candidate Links** | Generate unique access links for candidates | Right panel |
-| **Code Evaluation** | Claude scores the submission across 8 AI-collaboration dimensions | After candidate submits |
-| **Session Logging** | Track the candidate's Claude Code CLI interactions | Submission results |
+| **Code Evaluation** | Gemini scores the submission across 8 AI-collaboration dimensions | After candidate submits |
+| **Session Logging** | Track the candidate's Gemini CLI interactions | Submission results |
 | **8-Dimension Scoring** | Problem decomposition, first-principles thinking, iteration quality, debugging with AI, and 4 more — see `docs/PROJECT_REQUIREMENTS.md` | Result feedback |
 | **System Management** | Monitor health, manage containers | API endpoints |
 
@@ -124,10 +124,10 @@ PORT=8001 python run.py
 ### API Key Error
 ```bash
 # Verify API key is set
-echo $OPENROUTER_API_KEY
+echo $GEMINI_API_KEY
 
 # If not set, export it (temporary)
-export OPENROUTER_API_KEY="sk-or-..."
+export GEMINI_API_KEY="..."
 python run.py
 ```
 
@@ -140,7 +140,7 @@ python run.py
 
 ## Important Notes
 
-- **Challenge Generation** takes 8-15 seconds (Claude is thinking!)
+- **Challenge Generation** takes 8-15 seconds (Gemini is thinking!)
 - **Candidate Links** work without Docker too — they still generate instantly, just without a live code-server container (graceful degradation, not a hard requirement)
 - **Development Mode** has debug enabled - turn off in production
 - **No Authentication** currently - add before production use

@@ -147,7 +147,7 @@ Check that the candidate-container Dockerfile exists:
 ls -la docker/Dockerfile.codeserver
 ```
 
-Should show code-server + Claude Code CLI configuration.
+Should show code-server + Gemini CLI configuration.
 
 ### Build Container Image
 
@@ -222,7 +222,7 @@ docker build -f docker/Dockerfile.backend -t coding-platform:prod .
 
 # Run with proper configuration
 docker run \
-  -e OPENROUTER_API_KEY="sk-or-..." \
+  -e GEMINI_API_KEY="..." \
   -e FLASK_ENV="production" \
   -p 8000:8000 \
   --volume /var/lib/data:/app/data \

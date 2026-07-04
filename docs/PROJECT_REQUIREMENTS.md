@@ -18,7 +18,7 @@ hire-signal evaluates candidates on **AI-collaboration competency**, not just ou
 ## Core User Roles
 
 - **Employer** — creates coding challenges, generates candidate access links, reviews ranked results, flags/overrides AI recommendations, makes the final hiring call.
-- **Candidate** — receives a link, codes in a browser-based VS Code environment (optionally collaborating with Claude Code CLI), submits for evaluation.
+- **Candidate** — receives a link, codes in a browser-based VS Code environment (optionally collaborating with Gemini CLI), submits for evaluation.
 
 There is currently **no authentication** for either role — this is an accepted dev-phase constraint, not an oversight. See `CLAUDE.md`'s Security Considerations before any non-local deployment.
 
@@ -36,9 +36,9 @@ There is currently **no authentication** for either role — this is an accepted
 - A seed script (`scripts/seed_challenges.py`) provides 10 curated starter challenges across the type/area matrix.
 
 ### 2. Candidate assessment environment
-- Each generated link spins up an isolated Docker container running code-server (browser-based VS Code) with the Claude Code CLI pre-installed, restricted to a fast/cheap model (Haiku 4.5) for the in-session assistant.
+- Each generated link spins up an isolated Docker container running code-server (browser-based VS Code) with the Gemini CLI pre-installed, restricted to a fast/cheap model (Gemini 2.5 Flash) for the in-session assistant.
 - The container's `/workspace` is pre-populated with a structured brief (`instructions.md`: Scenario / Your Task / Evaluation Criteria) and the starter code.
-- **Guarded mode**: a `CLAUDE.md` file asks the in-container Claude Code CLI to restrict itself to conceptual guidance rather than full solutions. This is honor-system enforcement only — a candidate with shell access can remove it. Accepted v1 scope; see `deferred-work.md` for what hardening would require.
+- **Guarded mode**: a `GEMINI.md` file asks the in-container Gemini CLI to restrict itself to conceptual guidance rather than full solutions. This is honor-system enforcement only — a candidate with shell access can remove it. Accepted v1 scope; see `deferred-work.md` for what hardening would require.
 - The platform degrades gracefully without Docker: links still generate, with a clear message that the live environment is unavailable, rather than failing the whole flow.
 
 ### 3. Evaluation — 8 AI-collaboration dimensions
@@ -90,7 +90,7 @@ All 8 dimension keys are guaranteed present in every result, even if the LLM's o
 
 - Authentication / authorization of any kind
 - Multi-tenant isolation
-- Hard enforcement of guarded mode (network-level restriction of the candidate's own Claude Code CLI calls)
+- Hard enforcement of guarded mode (network-level restriction of the candidate's own Gemini CLI calls)
 - Postgres/Redis (config classes exist for a future migration but nothing in the current codebase depends on them)
 - Email notifications, cloud storage integrations
 

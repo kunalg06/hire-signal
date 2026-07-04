@@ -321,7 +321,7 @@ def student_dashboard(link_id):
 
             <div class="notice-box">
                 <strong>Before you start:</strong> Once you click Start Assessment, your session begins.
-                Work in the VS Code environment that opens. Use Claude AI freely to help you solve the
+                Work in the VS Code environment that opens. Use Gemini AI freely to help you solve the
                 challenge — you are being evaluated on <em>how well you collaborate with AI</em>,
                 not on writing code without it. Click <strong>Submit Assessment</strong> in the
                 top bar when you are done.

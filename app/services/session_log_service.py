@@ -7,11 +7,11 @@ from typing import List, Tuple
 logger = logging.getLogger(__name__)
 
 class SessionLogService:
-    """Service for parsing and analyzing Claude session logs"""
+    """Service for parsing and analyzing Gemini session logs"""
 
     @staticmethod
     def parse_session_log(log_content: str) -> List[dict]:
-        """Parse Claude session log into structured entries"""
+        """Parse Gemini session log into structured entries"""
         entries = []
 
         if not log_content or not log_content.strip():
@@ -44,7 +44,7 @@ class SessionLogService:
             for prompt_text, response_text in matches:
                 entry = {
                     'timestamp': datetime.now(timezone.utc).isoformat(),
-                    'interaction_type': 'claude_cli',
+                    'interaction_type': 'gemini_cli',
                     'prompt': prompt_text.strip()[:500],
                     'response_summary': response_text.strip()[:500],
                     'file_changes_count': 0,
@@ -55,10 +55,10 @@ class SessionLogService:
             # Pattern 2: Line-by-line parsing
             if not entries:
                 for line in lines:
-                    if line.strip() and any(keyword in line.lower() for keyword in ['prompt:', 'command:', 'claude', 'evaluate']):
+                    if line.strip() and any(keyword in line.lower() for keyword in ['prompt:', 'command:', 'gemini', 'evaluate']):
                         entry = {
                             'timestamp': datetime.now(timezone.utc).isoformat(),
-                            'interaction_type': 'claude_cli',
+                            'interaction_type': 'gemini_cli',
                             'prompt': line.strip()[:500],
                             'response_summary': 'Captured from terminal',
                             'file_changes_count': 0,

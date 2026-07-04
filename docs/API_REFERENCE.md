@@ -55,7 +55,7 @@ Spins up a candidate container (or degrades gracefully if Docker is unavailable)
 ```
 → `201`, or `404 {"detail": "Assignment not found"}`.
 
-If the assignment is linked to a challenge with `ai_assistance_mode='guarded'`, a `CLAUDE.md` restriction file is also injected into the container's `/workspace` (see `docs/ARCHITECTURE.md`).
+If the assignment is linked to a challenge with `ai_assistance_mode='guarded'`, a `GEMINI.md` restriction file is also injected into the container's `/workspace` (see `docs/ARCHITECTURE.md`).
 
 ---
 
@@ -178,7 +178,7 @@ Accepts either a `submission_id` or a `link_id` (falls back to the most recent s
 `hire_evaluation` is `null` if scoring hasn't completed yet — this is what the frontend polls on. → `404 {"detail": "Submission not found"}`.
 
 ### `GET /api/session-logs/<submission_id>`
-Raw parsed Claude Code CLI session log for a submission.
+Raw parsed Gemini CLI session log for a submission.
 
 ### `POST /api/submissions/<id>/flag`
 Marks a submission for manual review. `reason` is required.

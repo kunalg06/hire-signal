@@ -51,6 +51,8 @@ class DockerService:
                 'run', '-d',
                 '--name', name,
                 '-p', f'{port}:8080',
+                '-e', f'GEMINI_API_KEY={Config.GEMINI_API_KEY}',
+                '-e', f'GEMINI_MODEL={Config.GEMINI_MODEL}',
                 image,
             ])
             container_id = result.stdout.strip()
@@ -111,10 +113,10 @@ class DockerService:
         instructions.md so the candidate sees a structured brief inside VS Code.
 
         Story 6.5: when ai_assistance_mode == 'guarded', also writes a
-        CLAUDE.md into /workspace. Claude Code CLI (installed in the student
-        container, see docker/Dockerfile.codeserver) auto-loads CLAUDE.md
-        from its working directory as project instructions, attempting to
-        restrict the candidate's in-session Claude responses to conceptual
+        GEMINI.md into /workspace. Gemini CLI (installed in the student
+        container, see docker/Dockerfile.codeserver) auto-loads GEMINI.md
+        from its working directory as a context file, attempting to
+        restrict the candidate's in-session Gemini responses to conceptual
         guidance only. This is a prompt-level request, not enforced access
         control — the candidate has shell access and can edit or delete the
         file (see Story 6.5 Review Findings for the accepted v1 tradeoff).
@@ -154,7 +156,7 @@ When finished, click **Submit Assessment** in the top bar of this page.
 Save all files first (Ctrl+S).
 """
 
-        guarded_claude_md = """# Assessment Mode: Guarded
+        guarded_gemini_md = """# Assessment Mode: Guarded
 
 You are assisting a candidate during a technical assessment in **guarded mode**.
 
@@ -194,19 +196,19 @@ understanding, not AI-generated code they copy in unchanged.
                 chmod_paths = ['/workspace/instructions.md', '/workspace/solution.py']
 
                 # Story 6.5: guarded mode restricts the candidate's in-session
-                # Claude Code CLI via an auto-loaded CLAUDE.md in the workdir.
+                # Gemini CLI via an auto-loaded GEMINI.md in the workdir.
                 # Isolated in its own try/except so a failure here can't skip
                 # the chmod below for the already-copied instructions.md/solution.py.
                 if ai_assistance_mode == 'guarded':
                     try:
-                        claude_md_path = os.path.join(tmpdir, 'CLAUDE.md')
-                        with open(claude_md_path, 'w', encoding='utf-8') as f:
-                            f.write(guarded_claude_md)
-                        _run(['cp', claude_md_path, f'{container_id}:/workspace/CLAUDE.md'])
-                        chmod_paths.append('/workspace/CLAUDE.md')
-                        logger.debug("  Injected guarded-mode CLAUDE.md into %s", container_id[:12])
+                        gemini_md_path = os.path.join(tmpdir, 'GEMINI.md')
+                        with open(gemini_md_path, 'w', encoding='utf-8') as f:
+                            f.write(guarded_gemini_md)
+                        _run(['cp', gemini_md_path, f'{container_id}:/workspace/GEMINI.md'])
+                        chmod_paths.append('/workspace/GEMINI.md')
+                        logger.debug("  Injected guarded-mode GEMINI.md into %s", container_id[:12])
                     except Exception as e:
-                        logger.warning("guarded-mode CLAUDE.md injection failed for %s: %s", container_id[:12], e)
+                        logger.warning("guarded-mode GEMINI.md injection failed for %s: %s", container_id[:12], e)
 
                 _run([
                     'exec', '-u', 'root', container_id,

@@ -249,7 +249,7 @@ class ManagementService:
             health["components"]["database"] = f"unhealthy: {str(e)}"
             health["overall"] = "unhealthy"
 
-        # LLM API health (OpenRouter)
+        # LLM API health (Gemini)
         try:
             from app.services.llm_service import LLMService
             LLMService.get_client()

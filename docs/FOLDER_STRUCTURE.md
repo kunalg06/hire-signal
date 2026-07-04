@@ -34,10 +34,10 @@ coding_platforms/
 │   │   ├── __init__.py
 │   │   ├── database_service.py      # All SQL — raw sqlite3, no ORM
 │   │   ├── evaluation_service.py    # 8-dimension scoring, hire thresholds, challenge generation
-│   │   ├── llm_service.py           # OpenRouter wrapper — the only LLM call surface in the codebase
+│   │   ├── llm_service.py           # Gemini wrapper — the only LLM call surface in the codebase
 │   │   ├── docker_service.py        # Container lifecycle via subprocess `docker` CLI
 │   │   ├── management_service.py    # System status / container admin helpers
-│   │   └── session_log_service.py   # Parses Claude Code CLI session logs
+│   │   └── session_log_service.py   # Parses Gemini CLI session logs
 │   ├── utils/
 │   │   ├── __init__.py
 │   │   └── helpers.py               # IDGenerator, ValidationHelper, RateLimiter, DateTimeHelper
@@ -54,7 +54,7 @@ coding_platforms/
 │   └── test_generate_challenge_endpoint.py    # Integration test — challenge generation + persistence
 │
 ├── docker/                         # Container build/orchestration definitions
-│   ├── Dockerfile.codeserver        # Candidate container image — code-server + Claude Code CLI
+│   ├── Dockerfile.codeserver        # Candidate container image — code-server + Gemini CLI
 │   ├── Dockerfile.backend           # Flask backend image (used only by docker-compose.yml, legacy/optional)
 │   ├── Dockerfile                   # Alternate/earlier code-server image variant
 │   ├── docker-compose.yml           # Legacy multi-service orchestration (Postgres/Redis included but

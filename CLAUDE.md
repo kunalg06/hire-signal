@@ -17,16 +17,16 @@ Deferred/known-issue log: `_bmad-output/implementation-artifacts/deferred-work.m
 
 ## 🎯 Project Overview
 
-**hire-signal** is an AI hire-readiness evaluation platform. Employers post coding challenges; candidates complete them in isolated Docker containers running browser-based VS Code with Claude Code CLI access. Submissions are scored across **8 AI-collaboration dimensions** and produce a hire recommendation (`strong_hire` / `hire` / `select` / `pass`).
+**hire-signal** is an AI hire-readiness evaluation platform. Employers post coding challenges; candidates complete them in isolated Docker containers running browser-based VS Code with Gemini CLI access. Submissions are scored across **8 AI-collaboration dimensions** and produce a hire recommendation (`strong_hire` / `hire` / `select` / `pass`).
 
 **This is a hiring tool, not an educational platform.** It evaluates AI-assisted coding competency, not raw coding ability in isolation.
 
 ### Core Flow
-1. Employer generates a market-aligned coding challenge (Claude-authored) or picks one from the catalog
+1. Employer generates a market-aligned coding challenge (Gemini-authored) or picks one from the catalog
 2. Employer creates an assignment from that challenge and generates a candidate access link
-3. Each link spins up an isolated Docker container running code-server with the Claude Code CLI pre-installed
-4. Candidate codes in the browser, optionally collaborating with Claude, and submits
-5. Claude scores the submission across 8 dimensions; Python enforces the hire-recommendation thresholds
+3. Each link spins up an isolated Docker container running code-server with the Gemini CLI pre-installed
+4. Candidate codes in the browser, optionally collaborating with Gemini, and submits
+5. Gemini scores the submission across 8 dimensions; Python enforces the hire-recommendation thresholds
 6. Results appear on the employer dashboard: ranked candidate list, radar chart, side-by-side comparison, flag/override workflow
 
 ---
@@ -45,10 +45,10 @@ app/
 ├── services/
 │   ├── database_service.py    # All SQL — raw sqlite3, no ORM
 │   ├── evaluation_service.py  # 8-dimension scoring, hire-threshold enforcement, challenge generation
-│   ├── llm_service.py         # Thin OpenRouter wrapper — the ONLY LLM call surface
+│   ├── llm_service.py         # Thin Gemini wrapper — the ONLY LLM call surface
 │   ├── docker_service.py      # Container lifecycle via subprocess `docker` CLI (not the docker SDK)
 │   ├── management_service.py  # System status / container admin helpers
-│   └── session_log_service.py # Parses Claude Code CLI session logs from the student container
+│   └── session_log_service.py # Parses Gemini CLI session logs from the student container
 └── utils/helpers.py       # IDGenerator, ValidationHelper, RateLimiter
 ```
 
@@ -60,7 +60,7 @@ Single-file HTML/CSS/vanilla-JS employer dashboard (~85KB). No build step, no fr
 
 ### Student environment (`docker/`)
 
-- `Dockerfile.codeserver` — code-server + Claude Code CLI (`@anthropic-ai/claude-code` via npm), restricted to `claude-haiku-4.5` by container-level config
+- `Dockerfile.codeserver` — code-server + Gemini CLI (`@google/gemini-cli` via npm), restricted to `gemini-2.5-flash` by container-level config
 - `Dockerfile.backend` — Flask backend image (used only by `docker/docker-compose.yml`, which is a legacy/optional orchestration path — the actual dev workflow runs `python run.py` directly and manages student containers via `DockerService`'s subprocess CLI calls, not `docker-compose`)
 - Container port range: **7100–7900** (see Architecture Constraints below)
 
@@ -88,7 +88,7 @@ Single-file HTML/CSS/vanilla-JS employer dashboard (~85KB). No build step, no fr
 
 - **Visibility floor**: score affects candidate rank, never hides a candidate. Un-evaluated candidates always sort last regardless of sort direction (`math.inf`/`-math.inf` sentinel in the ranking route).
 
-- **Guarded vs unguarded mode**: `unguarded` lets Claude give full solutions inside the student container; `guarded` injects a `/workspace/CLAUDE.md` asking Claude Code CLI to restrict itself to conceptual guidance. **This is honor-system-only** — the candidate has shell access and can delete/edit the file. Accepted as v1 scope (see `deferred-work.md`).
+- **Guarded vs unguarded mode**: `unguarded` lets Gemini give full solutions inside the student container; `guarded` injects a `/workspace/GEMINI.md` asking Gemini CLI to restrict itself to conceptual guidance. **This is honor-system-only** — the candidate has shell access and can delete/edit the file. Accepted as v1 scope (see `deferred-work.md`).
 
 - **Challenge types**: `bug_fix | feature_extension | refactoring | optimization`
 - **Skill areas**: `api_integration | rate_limiting | data_pipeline | llm_usage | server_monitoring | game_logic`
@@ -100,7 +100,7 @@ Single-file HTML/CSS/vanilla-JS employer dashboard (~85KB). No build step, no fr
 ### Running the app
 
 ```bash
-# Set OPENROUTER_API_KEY in .env first (copy from .env.example)
+# Set GEMINI_API_KEY in .env first (copy from .env.example)
 python run.py
 # Backend + frontend both served from http://localhost:8000
 ```
@@ -115,7 +115,7 @@ python -m pytest tests/ -v
 
 - 64 tests across 5 files (`tests/test_score_8_dimensions.py`, `test_extract_container_files.py`, `test_hire_recommendation_thresholds.py`, `test_candidates_endpoint.py`, `test_generate_challenge_endpoint.py`)
 - Root `conftest.py` puts the project root on `sys.path` — no package install needed
-- All LLM calls are mocked (`LLMService.chat` monkeypatched) — **no `OPENROUTER_API_KEY` required to run the suite**
+- All LLM calls are mocked (`LLMService.chat` monkeypatched) — **no `GEMINI_API_KEY` required to run the suite**
 - Integration tests (`test_candidates_endpoint.py`, `test_generate_challenge_endpoint.py`) use `create_app("testing")` plus a monkeypatched, `tmp_path`-backed SQLite file — see the ⚠️ warning below before writing any new integration test
 
 ### Testing the API directly
@@ -155,7 +155,7 @@ python scripts/seed_challenges.py
 ## 🛠️ Common Customization Points
 
 ### Change the LLM model
-`OPENROUTER_MODEL` env var (default `anthropic/claude-haiku-4-5`). Routed entirely through `LLMService.chat()` in `app/services/llm_service.py` — this is the **only** LLM call surface in the codebase; do not call `openai`/`anthropic` SDKs directly anywhere else.
+`GEMINI_MODEL` env var (default `gemini-2.5-flash`). Routed entirely through `LLMService.chat()` in `app/services/llm_service.py` — this is the **only** LLM call surface in the codebase; do not call the `google-genai` SDK directly anywhere else.
 
 ### Add packages to the student container
 Edit `docker/Dockerfile.codeserver`.
@@ -172,7 +172,7 @@ Extend `VALID_CHALLENGE_TYPES`/`VALID_SKILL_AREAS` in `app/routes/challenges.py`
 
 **Port already in use** — the app runs on 8000 by default (`PORT` env var); student containers use 7100–7900.
 
-**`OPENROUTER_API_KEY not set`** — `LLMService.get_client()` raises `ValueError` if the key is empty after stripping quotes/whitespace. Check `.env`.
+**`GEMINI_API_KEY not set`** — `LLMService.get_client()` raises `ValueError` if the key is empty after stripping quotes/whitespace. Check `.env`.
 
 **Docker unavailable** — the system degrades gracefully. Links still generate instantly with a helpful message; `DockerService.get_client()` returns `None` rather than raising when the `docker` CLI isn't reachable.
 
@@ -192,7 +192,7 @@ Extend `VALID_CHALLENGE_TYPES`/`VALID_SKILL_AREAS` in `app/routes/challenges.py`
 | `session_links` | Maps a shareable link to a running container | `link_id, assignment_id, container_id, port, expires_at` |
 | `submissions` | A candidate's submitted code | `submission_id, link_id, assignment_id, score, feedback, is_flagged, flag_reason, flag_by, flagged_at` |
 | `submission_files` | Individual files within a submission | `file_id, submission_id, filename, content, file_size` |
-| `session_logs` | Parsed Claude Code CLI interaction log | `log_id, submission_id, timestamp, interaction_type, prompt, response_summary` |
+| `session_logs` | Parsed Gemini CLI interaction log | `log_id, submission_id, timestamp, interaction_type, prompt, response_summary` |
 | `dimension_scores` | Per-dimension score + rationale | `score_id, submission_id, dimension, score, rationale` |
 | `hire_evaluations` | Composite score + recommendation (+ override) | `eval_id, submission_id, composite_score, recommendation, is_overridden, override_recommendation, override_rationale, evaluated_at` |
 | `challenges` | Challenge catalog (generated or curated) | `id, title, domain, description, evaluation_rubric, starter_code, challenge_type, skill_area, difficulty, ai_assistance_mode, is_published, created_at` |
@@ -264,7 +264,7 @@ Full request/response shapes and worked examples: `docs/API_REFERENCE.md`.
 ## 🔒 Architecture Constraints — Read Before Writing Any Code
 
 - **SQLite only** — no Postgres, no Redis, no ORM. Raw SQL. `CREATE TABLE IF NOT EXISTS` is the migration strategy; `ALTER TABLE` guarded by `try/except sqlite3.OperationalError` (never a bare `except Exception`).
-- **LLM via OpenRouter only** — `LLMService.chat()` is the single call surface. Model swap via `OPENROUTER_MODEL`. Do not import `anthropic` or `openai` SDKs directly outside `llm_service.py`.
+- **LLM via Gemini only** — `LLMService.chat()` is the single call surface. Model swap via `GEMINI_MODEL`. Do not import the `google-genai` SDK directly outside `llm_service.py`.
 - **Docker via subprocess CLI** — the `docker` Python SDK is incompatible with `requests>=2.32` on Python 3.14 in this environment. All Docker operations go through `DockerService` in `docker_service.py`, which shells out to the `docker` CLI.
 - **Container port range: 7100–7900** — ports below 7000 (especially 6000–6007) are Chrome-blocked and will silently fail to load in-browser.
 - **Score thresholds are Python-enforced** — never trust Claude's own threshold/recommendation output; always recompute from the raw dimension scores.
@@ -274,7 +274,7 @@ Full request/response shapes and worked examples: `docs/API_REFERENCE.md`.
 - **No `sandbox` attribute on the student iframe** — code-server needs service workers.
 - **`db_service` is an import-time singleton per route module** — see the trap section above.
 - **ASCII only in `print()`/logging strings** — Windows console is cp1252.
-- **Tests: `LLMService.chat` is always mocked** — never let a test reach a real OpenRouter call or a real Docker daemon.
+- **Tests: `LLMService.chat` is always mocked** — never let a test reach a real Gemini API call or a real Docker daemon.
 
 ---
 
@@ -290,4 +290,4 @@ Full request/response shapes and worked examples: `docs/API_REFERENCE.md`.
 
 ---
 
-**Last updated**: 2026-07-03 (rewritten to match the actual Flask/`app/`-package architecture — the previous version described a FastAPI/`main.py` design that no longer exists in this codebase)
+**Last updated**: 2026-07-04 (migrated LLM provider from OpenRouter/Claude to Gemini — backend `LLMService` and the student container's coding assistant both now run on Gemini)

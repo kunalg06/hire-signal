@@ -109,7 +109,7 @@ Thresholds are **Python-enforced** — the LLM's own claimed composite/recommend
 ### Prerequisites
 
 - Python 3.11+
-- An [OpenRouter](https://openrouter.ai/keys) API key (LLM calls are routed through OpenRouter, not the Anthropic API directly)
+- A [Gemini](https://aistudio.google.com/apikey) API key (LLM calls are routed through the Gemini API)
 - Docker (**optional** — the app runs and the employer dashboard is fully usable without it; only live candidate containers require it)
 
 ### Setup
@@ -122,7 +122,7 @@ cd hire-signal
 pip install -r requirements.txt
 
 # Configure environment
-echo "OPENROUTER_API_KEY=sk-or-your-key-here" > .env
+echo "GEMINI_API_KEY=your-gemini-key-here" > .env
 
 # Run the platform
 python run.py
@@ -249,11 +249,11 @@ hire-signal/
 │   │   ├── analytics.py        # Override calibration analytics
 │   │   └── management.py       # System health & container management
 │   ├── services/
-│   │   ├── evaluation_service.py   # Claude evaluation + challenge generation
+│   │   ├── evaluation_service.py   # Gemini evaluation + challenge generation
 │   │   ├── database_service.py     # All DB operations (raw SQL, no ORM)
-│   │   ├── llm_service.py          # OpenRouter wrapper — the only LLM call surface
+│   │   ├── llm_service.py          # Gemini wrapper — the only LLM call surface
 │   │   ├── docker_service.py       # Container lifecycle via subprocess `docker` CLI
-│   │   ├── session_log_service.py  # Claude interaction log parsing
+│   │   ├── session_log_service.py  # Gemini interaction log parsing
 │   │   └── management_service.py   # System monitoring
 │   ├── models/
 │   │   └── database.py         # SQLite schema (10 tables)
@@ -287,7 +287,7 @@ hire-signal/
 | `session_links` | Candidate links → containers |
 | `submissions` | Submitted workspaces, with flag status |
 | `submission_files` | Individual files per submission |
-| `session_logs` | Claude interaction log per session |
+| `session_logs` | Gemini interaction log per session |
 | `dimension_scores` | Per-dimension score + rationale per submission |
 | `hire_evaluations` | Composite score + hire verdict (+ human override) |
 | `challenges` | Challenge catalog (draft/published) |
@@ -302,10 +302,10 @@ Full schema detail: [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md)
 
 ```env
 # Required
-OPENROUTER_API_KEY=sk-or-...
+GEMINI_API_KEY=...
 
 # Optional (defaults shown)
-OPENROUTER_MODEL=anthropic/claude-haiku-4-5
+GEMINI_MODEL=gemini-2.5-flash
 FLASK_ENV=development
 PORT=8000
 DB_PATH=data/assignments.db
@@ -338,8 +338,8 @@ AI scores are one signal in a hiring decision, not the decision itself. The plat
 ## Tech Stack
 
 - **Backend**: Python 3.11, Flask 3.0, SQLite (no ORM)
-- **AI**: Claude models via OpenRouter (Haiku 4.5 default, swappable via `OPENROUTER_MODEL`)
-- **Candidate environment**: Docker, code-server (browser VS Code), Claude Code CLI
+- **AI**: Gemini models via the Gemini API (`gemini-2.5-flash` default, swappable via `GEMINI_MODEL`)
+- **Candidate environment**: Docker, code-server (browser VS Code), Gemini CLI
 - **Frontend**: Vanilla HTML/CSS/JS — no framework, no build step
 - **Testing**: pytest, 64 tests, fully mocked LLM/Docker
 

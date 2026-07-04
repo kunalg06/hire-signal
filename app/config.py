@@ -24,10 +24,9 @@ class Config:
     RATE_LIMIT_REQUESTS = 5
     RATE_LIMIT_WINDOW = 60
 
-    # LLM — routed through OpenRouter (swap model via OPENROUTER_MODEL env var)
-    OPENROUTER_API_KEY = os.getenv('OPENROUTER_API_KEY', '')
-    OPENROUTER_MODEL   = os.getenv('OPENROUTER_MODEL', 'anthropic/claude-haiku-4-5')
-    OPENROUTER_BASE_URL = 'https://openrouter.ai/api/v1'
+    # LLM — routed through Gemini (swap model via GEMINI_MODEL env var)
+    GEMINI_API_KEY = os.getenv('GEMINI_API_KEY', '')
+    GEMINI_MODEL   = os.getenv('GEMINI_MODEL', 'gemini-2.5-flash')
 
     # Docker
     DOCKER_HOST = os.getenv('DOCKER_HOST', None)

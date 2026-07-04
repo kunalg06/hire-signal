@@ -33,7 +33,7 @@
                 │                      │                        │
                 ▼                      ▼                        ▼
       ┌──────────────────┐   ┌──────────────────┐   ┌────────────────────┐
-      │  SQLite           │   │  OpenRouter API  │   │  Docker daemon     │
+      │  SQLite           │   │  Gemini API      │   │  Docker daemon     │
       │  data/            │   │  (LLMService,    │   │  (spawns/manages   │
       │  assignments.db   │   │  model swappable │   │  candidate         │
       │  10 tables         │   │  via env var)    │   │  containers)       │
@@ -44,8 +44,8 @@
                                               │  Candidate container            │
                                               │  (docker/Dockerfile.codeserver) │
                                               │  ├── code-server (browser IDE)  │
-                                              │  ├── Claude Code CLI            │
-                                              │  │   (haiku-4.5, restricted)    │
+                                              │  ├── Gemini CLI                 │
+                                              │  │   (gemini-2.5-flash)         │
                                               │  └── /workspace (candidate code)│
                                               │  Port: 7100-7900 (per-container)│
                                               └────────────────────────────────┘
@@ -85,8 +85,8 @@ Employer → POST /api/generate-link/<assignment_id> (app/routes/links.py)
            container's /workspace:
              - instructions.md (Scenario / Your Task / Evaluation Criteria)
              - solution.py (starter code)
-             - CLAUDE.md, only if ai_assistance_mode == 'guarded' —
-               asks the in-container Claude Code CLI to restrict itself
+             - GEMINI.md, only if ai_assistance_mode == 'guarded' —
+               asks the in-container Gemini CLI to restrict itself
                to conceptual guidance (honor-system only, see Constraints)
          → session_links row created; access_url returned
          → Docker unavailable? Link still generates instantly with a
@@ -140,17 +140,17 @@ Employer → POST /api/submissions/<id>/flag  — manual-review marker
 | Decision | Why |
 |---|---|
 | SQLite, no ORM, raw SQL everywhere | Single-tenant dev-phase system; ORM overhead buys nothing here. `CREATE TABLE IF NOT EXISTS` + guarded `ALTER TABLE` is the entire migration story. |
-| LLM calls routed through `LLMService`, never a direct SDK call | One swap point for model/provider. Currently OpenRouter; started as a direct Anthropic SDK integration and was migrated. |
+| LLM calls routed through `LLMService`, never a direct SDK call | One swap point for model/provider. Currently Gemini; started as a direct Anthropic SDK integration, migrated to OpenRouter, then migrated to Gemini (2026-07-04). |
 | Docker via subprocess CLI, not the `docker` Python SDK | The `docker` SDK's `requests` dependency is incompatible with `requests>=2.32` under Python 3.14 in this environment. |
 | Hire thresholds computed in Python, never trusted from the LLM | An LLM can be prompted to also emit a composite/recommendation, but that number must never be authoritative — it's recomputed from the raw per-dimension scores every time. |
 | `score_overrides` append-only, `hire_evaluations`'s original score read-only | Human overrides are calibration data, not corrections that erase the AI's original call — both signals need to coexist for auditability. |
 | Visibility floor (never hide, always rank last) | An unscored candidate is not the same as a bad candidate; hiding them would be a silent, unaccountable filter. |
-| Guarded mode is a `CLAUDE.md` file, not a network-level restriction | v1 scope decision — a candidate with shell access can bypass it. Accepted tradeoff, documented in `deferred-work.md`; real enforcement (proxying/validating the container's Claude Code CLI calls) is a future story if assessment integrity requirements demand it. |
+| Guarded mode is a `GEMINI.md` file, not a network-level restriction | v1 scope decision — a candidate with shell access can bypass it. Accepted tradeoff, documented in `deferred-work.md`; real enforcement (proxying/validating the container's Gemini CLI calls) is a future story if assessment integrity requirements demand it. |
 | Each Flask blueprint constructs its own `db_service` at **import time** | Pre-existing pattern from early development; means the DB path is fixed the moment a route module is first imported, not per-request or per-`create_app()` call — a real trap for anyone writing tests against these routes. See `CLAUDE.md`'s "Critical Trap" section. |
 
 ## Testing architecture
 
-64 tests across 5 files (`tests/`), all invokable with `python -m pytest tests/ -v` and requiring **no** `OPENROUTER_API_KEY` or Docker daemon:
+64 tests across 5 files (`tests/`), all invokable with `python -m pytest tests/ -v` and requiring **no** `GEMINI_API_KEY` or Docker daemon:
 
 - **Unit tests** (`test_score_8_dimensions.py`, `test_extract_container_files.py`, `test_hire_recommendation_thresholds.py`) mock `LLMService.chat` / `DockerService.get_archive` directly and call service methods without touching Flask at all.
 - **Integration tests** (`test_candidates_endpoint.py`, `test_generate_challenge_endpoint.py`) drive a real Flask test client against a real, but fully isolated, per-test SQLite file — see `CLAUDE.md`'s "Critical Trap" section for why this isn't as simple as `create_app("testing")` alone.
