@@ -34,14 +34,18 @@ class DatabaseService:
             cursor.execute('SELECT * FROM assignments ORDER BY created_at DESC')
             return cursor.fetchall()
 
-    def create_session_link(self, link_id, assignment_id, container_id, port, expires_at):
+    def create_session_link(self, link_id, assignment_id, container_id, port, expires_at,
+                            ai_assistance_mode=None, guarded_mode_enforced=None):
         """Create a new session link"""
         with self.db.get_connection() as conn:
             cursor = conn.cursor()
             cursor.execute('''
-                INSERT INTO session_links (link_id, assignment_id, container_id, port, expires_at)
-                VALUES (?, ?, ?, ?, ?)
-            ''', (link_id, assignment_id, container_id, port, expires_at))
+                INSERT INTO session_links
+                    (link_id, assignment_id, container_id, port, expires_at,
+                     ai_assistance_mode, guarded_mode_enforced)
+                VALUES (?, ?, ?, ?, ?, ?, ?)
+            ''', (link_id, assignment_id, container_id, port, expires_at,
+                  ai_assistance_mode, guarded_mode_enforced))
             conn.commit()
 
     def get_session_link(self, link_id):
@@ -234,6 +238,18 @@ class DatabaseService:
             cursor.execute('SELECT created_at FROM session_links WHERE link_id = ?', (link_id,))
             row = cursor.fetchone()
             return row[0] if row else None
+
+    def get_session_link_assistance_info(self, link_id):
+        """Return (ai_assistance_mode, guarded_mode_enforced) for a session
+        link (Story 9.3). Returns (None, None) if the link doesn't exist or
+        predates this column (both nullable, no backfill for old links)."""
+        with self.db.get_connection() as conn:
+            cursor = conn.cursor()
+            cursor.execute(
+                'SELECT ai_assistance_mode, guarded_mode_enforced FROM session_links WHERE link_id = ?',
+                (link_id,))
+            row = cursor.fetchone()
+            return row if row else (None, None)
 
     # ── 8-Dimension scoring methods ───────────────────────────────────────
 

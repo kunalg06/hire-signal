@@ -106,7 +106,7 @@ class DockerService:
     @staticmethod
     def inject_workspace_files(container_id: str, title: str, description: str,
                                criteria: str, starter_code: str,
-                               ai_assistance_mode: str = Config.DEFAULT_ASSISTANCE_MODE):
+                               ai_assistance_mode: str = Config.DEFAULT_ASSISTANCE_MODE) -> dict:
         """
         Write instructions.md and solution.py into /workspace immediately
         after container creation. Story 6.1 three-panel format used for
@@ -120,6 +120,14 @@ class DockerService:
         guidance only. This is a prompt-level request, not enforced access
         control — the candidate has shell access and can edit or delete the
         file (see Story 6.5 Review Findings for the accepted v1 tradeoff).
+
+        Returns {'injected': bool, 'guarded_mode_enforced': bool} (Story 9.3):
+        'injected' is False only if instructions.md/solution.py could not be
+        written at all (rare/fatal container issue). 'guarded_mode_enforced'
+        is True when ai_assistance_mode != 'guarded' (nothing to enforce) or
+        the GEMINI.md write succeeded; False when guarded mode was requested
+        but the write failed — meaning the assessment may be running
+        unguarded without anyone being told.
         """
         import time
         import tempfile
@@ -173,6 +181,8 @@ This restriction exists so the assessment measures the candidate's own
 understanding, not AI-generated code they copy in unchanged.
 """
 
+        guarded_mode_enforced = (ai_assistance_mode != 'guarded')
+
         try:
             with tempfile.TemporaryDirectory() as tmpdir:
                 # instructions.md
@@ -207,8 +217,10 @@ understanding, not AI-generated code they copy in unchanged.
                         _run(['cp', gemini_md_path, f'{container_id}:/workspace/GEMINI.md'])
                         chmod_paths.append('/workspace/GEMINI.md')
                         logger.debug("  Injected guarded-mode GEMINI.md into %s", container_id[:12])
+                        guarded_mode_enforced = True
                     except Exception as e:
                         logger.warning("guarded-mode GEMINI.md injection failed for %s: %s", container_id[:12], e)
+                        guarded_mode_enforced = False
 
                 _run([
                     'exec', '-u', 'root', container_id,
@@ -217,8 +229,11 @@ understanding, not AI-generated code they copy in unchanged.
                 ], check=False)
                 logger.debug("  Permissions set on workspace files in %s", container_id[:12])
 
+            return {'injected': True, 'guarded_mode_enforced': guarded_mode_enforced}
+
         except Exception as e:
             logger.warning("workspace injection failed for %s: %s", container_id[:12], e)
+            return {'injected': False, 'guarded_mode_enforced': guarded_mode_enforced}
 
     @staticmethod
     def cleanup_container(container_id: str):

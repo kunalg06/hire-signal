@@ -24,6 +24,7 @@ def client(monkeypatch, tmp_path):
     captured = {}
     def capture_inject(*args, **kwargs):
         captured["ai_assistance_mode"] = kwargs.get("ai_assistance_mode")
+        return {"injected": True, "guarded_mode_enforced": True}
     monkeypatch.setattr(DockerService, "inject_workspace_files", capture_inject)
 
     from app import create_app
@@ -86,3 +87,45 @@ def test_no_challenge_linked_defaults_to_unguarded(client, db):
     resp = c.post(f"/api/generate-link/{assignment_id}")
     assert resp.status_code == 201
     assert captured["ai_assistance_mode"] == Config.DEFAULT_ASSISTANCE_MODE
+
+
+# ── Guarded-mode injection outcome persisted on session_links (Story 9.3) ──
+
+def test_successful_guarded_injection_persists_enforced_true(client, db):
+    c, captured = client
+    assignment_id, _ = make_assignment_with_challenge(db, "guarded")
+    resp = c.post(f"/api/generate-link/{assignment_id}")
+    assert resp.status_code == 201
+    link_id = resp.get_json()["link_id"]
+
+    ai_mode, enforced = db.get_session_link_assistance_info(link_id)
+    assert ai_mode == "guarded"
+    assert bool(enforced) is True
+
+
+def test_failed_guarded_injection_persists_enforced_false(client, db, monkeypatch):
+    c, captured = client
+    def failing_inject(*args, **kwargs):
+        return {"injected": True, "guarded_mode_enforced": False}
+    monkeypatch.setattr(DockerService, "inject_workspace_files", failing_inject)
+
+    assignment_id, _ = make_assignment_with_challenge(db, "guarded")
+    resp = c.post(f"/api/generate-link/{assignment_id}")
+    assert resp.status_code == 201
+    link_id = resp.get_json()["link_id"]
+
+    ai_mode, enforced = db.get_session_link_assistance_info(link_id)
+    assert ai_mode == "guarded"
+    assert bool(enforced) is False
+
+
+def test_unguarded_mode_persists_enforced_true(client, db):
+    c, captured = client
+    assignment_id, _ = make_assignment_with_challenge(db, "unguarded")
+    resp = c.post(f"/api/generate-link/{assignment_id}")
+    assert resp.status_code == 201
+    link_id = resp.get_json()["link_id"]
+
+    ai_mode, enforced = db.get_session_link_assistance_info(link_id)
+    assert ai_mode == "unguarded"
+    assert bool(enforced) is True

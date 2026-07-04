@@ -35,7 +35,7 @@
 # - Dev moves story to 'review', then runs code-review (fresh context, different LLM recommended)
 
 generated: "2026-07-02"
-last_updated: "2026-07-04"  # updated: Story 9-2 implemented, 104/104 tests passing, marked for review
+last_updated: "2026-07-04"  # updated: Story 9-3 implemented, 115/115 tests passing, marked for review
 project: coding_platforms
 project_key: NOKEY
 tracking_system: file-system
@@ -347,13 +347,13 @@ development_status:
   # No new endpoint added (out of scope per AC6). 104/104 full suite green
   # (101 before this story + 3 new).
 
-  9-3-surface-guarded-mode-injection-failures: backlog
-  # app/services/docker_service.py inject_workspace_files(): if the GEMINI.md
-  # write itself fails (transient Docker/disk issue, distinct from a
-  # candidate deliberately deleting the file post-injection), link generation
-  # proceeds silently and nobody is told the assessment ran unguarded. Fix:
-  # surface ai_assistance_mode + injection success/failure on the employer
-  # dashboard / submission record.
+  9-3-surface-guarded-mode-injection-failures: review
+  # Implemented 2026-07-04: inject_workspace_files() now returns
+  # {injected, guarded_mode_enforced} instead of silently returning None;
+  # session_links gained ai_assistance_mode/guarded_mode_enforced columns;
+  # generate_link() persists the REAL injection result; GET /api/submission
+  # surfaces both fields. Backend/API only (AC8), no frontend badge.
+  # 115/115 full suite green (104 before this story + 11 new).
 
   9-4-session-expiry-during-open-modal: backlog
   # app/routes/student.py: if the countdown timer hits zero while the nudge

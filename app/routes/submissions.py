@@ -310,6 +310,10 @@ def get_submission(submission_id_or_link):
     else:
         hire_data = None
 
+    # Guarded-mode injection outcome (Story 9.3) — surfaces whether a
+    # "guarded" assessment actually got its GEMINI.md restriction applied.
+    ai_mode, guarded_enforced = db_service.get_session_link_assistance_info(row[1])
+
     return jsonify({
         # Core submission fields
         "submission_id":    row[0],
@@ -326,6 +330,9 @@ def get_submission(submission_id_or_link):
         "flag_reason": row[11] if len(row) > 11 else None,
         "flag_by":     row[12] if len(row) > 12 else None,
         "flagged_at":  row[13] if len(row) > 13 else None,
+        # AI assistance mode + guarded-mode enforcement outcome (Story 9.3)
+        "ai_assistance_mode":    ai_mode,
+        "guarded_mode_enforced": bool(guarded_enforced) if guarded_enforced is not None else None,
         # Supporting content
         "instructions_md":  instructions_md,
         "gemini_logs":      gemini_logs or "No Gemini session logs available",

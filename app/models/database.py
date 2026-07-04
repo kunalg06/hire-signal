@@ -205,3 +205,16 @@ class Database:
                     conn.commit()
             except sqlite3.OperationalError:
                 pass  # Column already exists
+
+        # Schema migration: surface guarded-mode injection outcome on
+        # session_links (Story 9.3)
+        for _col_sql in [
+            'ALTER TABLE session_links ADD COLUMN ai_assistance_mode TEXT',
+            'ALTER TABLE session_links ADD COLUMN guarded_mode_enforced INTEGER DEFAULT 1',
+        ]:
+            try:
+                with self.get_connection() as conn:
+                    conn.execute(_col_sql)
+                    conn.commit()
+            except sqlite3.OperationalError:
+                pass  # Column already exists
