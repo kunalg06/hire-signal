@@ -1,5 +1,36 @@
 # Deferred Work
 
+## Resolved 2026-07-04 (post-Story-9.1 code review follow-up)
+
+- **Sibling N+1 pattern in `app/routes/assignments.py:90`** (`GET /api/assignments/<assignment_id>/candidates`): originally deferred out of Story 9.1's scope (see below), then re-raised by the code review of Story 9.1 as a trivial, risk-free reuse of the batched method that was already written and tested. Fixed same-day: `get_candidates()` now collects `submission_ids` up front and calls `db_service.get_dimension_scores_for_submissions()` once instead of once per candidate — identical 3-line change already proven in `challenges.py`. New test file `tests/test_assignments_candidates_endpoint.py` (6 tests — no coverage existed for this endpoint before). Full suite: 101/101 passing.
+
+## Deferred from: Story 9.1 (batch dimension-score queries in candidates endpoint, 2026-07-04)
+
+- ~~**Sibling N+1 pattern in `app/routes/assignments.py:90`**~~ — RESOLVED same-day, see "Resolved 2026-07-04 (post-Story-9.1 code review follow-up)" above. Originally: calls `db_service.get_dimension_scores(submission_id)` once per candidate, the identical pattern Story 9.1 just fixed in `app/routes/challenges.py`'s candidates endpoint. Not part of the original deferred-work.md finding that created Epic 9 (which named only `challenges.py:215`), so left untouched per Story 9.1's explicit scope boundary.
+
+## Resolved 2026-07-04 (bmad-party-mode triage + quick-dev execution)
+
+A party-mode roundtable (John/PM, Winston/Architect, Amelia/Dev) triaged every
+item below. 10 quick-dev patches were greenlit and landed same-session, all
+covered by new tests (83 passing, up from 64). The original bullets are left
+below unedited as the historical record of what was found and by which
+story's review — treat the items listed here as CLOSED, not open:
+
+- **Fence-stripping / non-numeric-score / malformed-JSON-shape / prompt-outside-try** (all under "code review of story 7-1..." and "story 7-1..." below) — fixed together as one hardening pass in `evaluation_service.py`: extracted `_parse_dimension_response()` with a single `DimensionParseError`, regex-based fence extraction (handles bare fences and prose-wrapped fences), per-dimension shape/type coercion. Tests: `test_score_8_dimensions.py` (8 new cases).
+- **`hire_recommendation`/`composite_score` rounding mismatch** (under "code review of story 7-3...") — composite is now rounded once before classification; storage and classification always agree. Test updated in `test_hire_recommendation_thresholds.py`.
+- **Flagged candidates unfiltered in candidates ranking** (under "code review of Epic 4...") — `is_flagged` now added to `get_candidates_for_challenge()` SELECT and the candidate payload (additive only, visibility floor untouched). Test: `test_candidates_endpoint.py`. The re-flagging-overwrite / append-only `flag_events` half of this item is NOT resolved — still open, moved to the hardening-epic backlog.
+- **`generate-challenge` returns 200 on silent persist failure** (under "code review of story 7-5...") — added `persisted: bool` to the response.
+- **Non-string/null field crash in `generate-challenge`** (under "code review of story 7-5...") — fields now coerced via a type check before `.strip()`; returns a clean 400.
+- **No whitelist on `ai_assistance_mode`** (under "code review of 6-5...") — `links.py` now validates against `Config.VALID_ASSISTANCE_MODES`, logging a warning and falling back to the default on drift instead of silently going unrestricted.
+- **Magic string `'unguarded'` duplicated** (under "code review of 6-5...") — extracted to `Config.DEFAULT_ASSISTANCE_MODE`, used by both `links.py` and `docker_service.py`.
+- **Dead `_run()` call in `get_file_from_container`** (under "code review of story 1-4...") — removed; the single remaining call already ran in the correct binary mode.
+- **`flask run` produces no INFO logging** (under "code review of story 1-4...") — `create_app()` now calls `logging.basicConfig()` guarded by `if not logging.root.handlers`.
+- **Five `student.py` JS issues** (`submitBtn` stuck disabled, `escHtml` not escaping quotes, no re-entrancy guard on `startPolling`, permanent HTTP errors treated as transient, no Escape-key modal handler — spread across the 6.2/6.3/6.4 review entries below) — all fixed in one pass. No JS test harness exists in this repo; verified by starting the real dev server, generating a real candidate link, fetching the rendered page, confirming all five fixes are present in the served HTML, and syntax-checking the extracted script with `node --check`.
+
+**Explicitly NOT touched** (settled/accepted v1 scope, reconfirmed during this triage — see AGENT.md "Next Session" section for the full reasoning): guarded-mode honor-system bypassability, no-auth-by-design surfaces (`flagged_by`, `/student/preview`), concurrent-override double-counting, and everything else the original reviews called benign-at-scale or convention-matching (workspace param in `extract_container_files`, cap-accounting quirks, missing try/except on `get_challenge()`, AC3 wording, chmod 666, test-import coupling, CSS duplication, no poll backoff/jitter, background thread not catching `BaseException`).
+
+**Still open — now scoped as Epic 9 (Production Hardening)** in `sprint-status.yaml`, stories 9-1 through 9-6, all `backlog`, not urgent: N+1 candidates query, `flag_events` append-only table + re-flagging-overwrite fix, guarded-mode injection-failure visibility on the dashboard, session-expiry-during-open-modal handling, assignment/link-keyed preview fidelity (blocked on a UI-placement decision), Gemini CLI interactive-picker manual QA pass.
+
 ## Deferred from: 8-1-pre-authenticate-gemini-cli-in-student-container (2026-07-04)
 
 - **Interactive-picker fix not manually confirmed in a real browser terminal** (`docker/Dockerfile.codeserver`): The `security.auth.selectedType: "gemini-api-key"` fix is sourced directly from the installed CLI's own bundled, version-matched docs and doesn't regress headless mode (both verified live). But actually watching the interactive auth picker disappear inside a real terminal couldn't be automated in this session — `docker exec -t` without a genuinely attached terminal doesn't reliably drive Gemini CLI's ink-based interactive UI (attempts hung). Recommended: one manual pass — generate a candidate link, open the code-server terminal in an actual browser, type `gemini`, confirm no auth-method picker appears before fully closing this out.

@@ -149,18 +149,37 @@ def test_invalid_ai_assistance_mode_returns_400(client, monkeypatch):
     assert calls == []
 
 
-# ── Documents a known, deferred production gap (see deferred-work.md):
-#    non-string values crash .strip() with an unhandled AttributeError, not
-#    a clean 400 — confirmed to actually propagate as a raised exception
-#    through Flask's test client (TESTING=True re-raises unhandled errors
-#    instead of converting them to a 500 response) rather than being caught
-#    anywhere in the route, which only wraps the LLM call in a try/except.
+# ── Regression: non-string field values must 400, not crash (party-mode
+#    triage 2026-07-04; see deferred-work.md for the pre-fix AttributeError
+#    this replaces).
 
-def test_null_difficulty_currently_crashes_unhandled(client, monkeypatch):
-    mock_chat(monkeypatch, make_llm_response())
+def test_null_difficulty_returns_400_not_crash(client, monkeypatch):
+    calls = mock_chat(monkeypatch, make_llm_response())
     payload = {**VALID_PAYLOAD, "difficulty": None}
-    with pytest.raises(AttributeError):
-        client.post(ENDPOINT, json=payload)
+    resp = client.post(ENDPOINT, json=payload)
+    assert resp.status_code == 400
+    assert "difficulty" in resp.get_json()["error"]
+    assert calls == []
+
+
+def test_null_problem_statement_returns_400_not_crash(client, monkeypatch):
+    calls = mock_chat(monkeypatch, make_llm_response())
+    payload = {**VALID_PAYLOAD, "problem_statement": None}
+    resp = client.post(ENDPOINT, json=payload)
+    assert resp.status_code == 400
+    assert "problem_statement" in resp.get_json()["error"]
+    assert calls == []
+
+
+def test_non_string_challenge_type_falls_back_to_default(client, monkeypatch):
+    # challenge_type/skill_area/ai_assistance_mode have non-empty defaults,
+    # so a non-string value coerces to the default rather than 400ing.
+    calls = mock_chat(monkeypatch, make_llm_response())
+    payload = {**VALID_PAYLOAD, "challenge_type": None}
+    resp = client.post(ENDPOINT, json=payload)
+    assert resp.status_code == 200
+    assert resp.get_json()["challenge_type"] == "feature_extension"
+    assert len(calls) == 1
 
 
 # ── AC 6: success + persistence ─────────────────────────────────────────────
@@ -173,6 +192,7 @@ def test_valid_request_returns_200_and_persists_as_unpublished_draft(
     assert resp.status_code == 200
     body = resp.get_json()
     assert body["challenge_id"] is not None
+    assert body["persisted"] is True
     assert body["is_published"] is False
     assert body["title"] == "Fix the Rate Limiter"
 
@@ -236,4 +256,5 @@ def test_persist_failure_still_returns_200_with_null_challenge_id(
     assert resp.status_code == 200
     body = resp.get_json()
     assert body["challenge_id"] is None
+    assert body["persisted"] is False
     assert body["title"] == "Fix the Rate Limiter"

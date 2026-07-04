@@ -35,7 +35,7 @@
 # - Dev moves story to 'review', then runs code-review (fresh context, different LLM recommended)
 
 generated: "2026-07-02"
-last_updated: "2026-07-04"  # updated: Story 8.1 done — Gemini CLI pre-authentication gap found + fixed post Phase 2 migration
+last_updated: "2026-07-04"  # updated: Story 9-2 implemented, 104/104 tests passing, marked for review
 project: coding_platforms
 project_key: NOKEY
 tracking_system: file-system
@@ -305,3 +305,81 @@ development_status:
   # exact-call-count test for provider-down errors). Verified via a mocked
   # 2-fail-then-succeed recovery test + live stress runs; full suite unchanged
   # at 64/64.
+
+  epic-8-retrospective: optional
+
+  # ─────────────────────────────────────────────────────────────────────────
+  # Epic 9 — Production Hardening (deferred-work backlog)
+  # Scoped 2026-07-04 via bmad-party-mode triage (John/PM, Winston/Architect,
+  # Amelia/Dev) of every item in deferred-work.md. Not started — none of the
+  # 10 quick-dev items from that same triage belong here (those landed the
+  # same session as direct patches, see deferred-work.md's "Resolved
+  # 2026-07-04" section). This epic is specifically the items the panel
+  # judged too structural for a quick-dev patch: schema/behavior decisions,
+  # a batched-query rewrite needing a regression test first, and one item
+  # blocked on a product decision. Not urgent — pick up when capacity allows.
+  # ─────────────────────────────────────────────────────────────────────────
+  epic-9: in-progress
+
+  9-1-batch-dimension-score-queries-in-candidates-endpoint: review
+  # Implemented 2026-07-04: added DatabaseService.get_dimension_scores_for_submissions()
+  # (one batched query, grouped by submission_id) and rewired get_challenge_candidates()
+  # to call it once instead of once per candidate. Sort/rank/dimension_averages/is_flagged
+  # logic untouched. 17/17 tests in test_candidates_endpoint.py pass (14 pre-existing
+  # unmodified + 3 new), 95/95 full suite green. Sibling N+1 in assignments.py:90 found,
+  # confirmed out of scope per story, logged to deferred-work.md.
+  # app/routes/challenges.py:215 issues one get_dimension_scores() query per
+  # candidate (N+1), flagged since Story 4.2 but accepted then (no pagination
+  # AC existed). Fix: batch into one WHERE submission_id IN (...) query.
+  # Winston's condition (2026-07-04 triage): must ship WITH a regression test
+  # proving the visibility floor (un-evaluated candidates sort last via the
+  # math.inf/-math.inf sentinel) survives the rewrite — a LEFT JOIN returning
+  # NULL rows instead of no rows could silently break that guarantee as a
+  # side effect nobody intended.
+
+  9-2-flag-lifecycle-audit-trail: review
+  # Implemented 2026-07-04: added flag_events append-only table (mirrors
+  # score_overrides exactly) and DatabaseService.log_flag_event(), wired
+  # into flag_submission() the same way override_submission() calls
+  # log_score_override(). Re-flagging now preserves full history instead
+  # of overwriting it; submissions.flag_reason/flag_by/flagged_at still
+  # show only the latest flag (unchanged, verified by a dedicated test).
+  # No new endpoint added (out of scope per AC6). 104/104 full suite green
+  # (101 before this story + 3 new).
+
+  9-3-surface-guarded-mode-injection-failures: backlog
+  # app/services/docker_service.py inject_workspace_files(): if the GEMINI.md
+  # write itself fails (transient Docker/disk issue, distinct from a
+  # candidate deliberately deleting the file post-injection), link generation
+  # proceeds silently and nobody is told the assessment ran unguarded. Fix:
+  # surface ai_assistance_mode + injection success/failure on the employer
+  # dashboard / submission record.
+
+  9-4-session-expiry-during-open-modal: backlog
+  # app/routes/student.py: if the countdown timer hits zero while the nudge
+  # or submit modal is open, nothing closes the overlay or alerts the
+  # candidate; the API then silently rejects the expired session on submit.
+  # Fix: hook the timer to auto-close open modals and show an expiry toast.
+
+  9-5-assignment-link-keyed-preview-fidelity: backlog
+  # BLOCKED on a product decision, not a code readiness gap. student_preview()
+  # reads the challenges catalog template, not the live assignments row a
+  # candidate actually sees post-generation-edits. Resolved via a prior
+  # party-mode panel (2026-07-03, unanimous): no code forced then since no
+  # frontend trigger existed yet; AC3 was reworded to describe template-preview
+  # accurately. Before this story can start, someone must decide WHERE the
+  # "preview as student" trigger lives in the UI (assignment-detail page vs.
+  # catalog page) - that decision determines whether challenge_id uniquely
+  # resolves to one assignment (it does not; one challenge can spawn many
+  # assignments) and whether new disambiguation logic is needed.
+
+  9-6-verify-gemini-cli-auth-picker-manually: backlog
+  # Not a code story - a one-time manual QA checklist item. Story 8.1's
+  # security.auth.selectedType fix (verified live for headless `gemini -p`)
+  # was never watched disappear in the real interactive picker inside an
+  # actual browser terminal, because docker exec -t without a genuinely
+  # attached terminal doesn't reliably drive Gemini CLI's ink-based UI.
+  # Action: generate a candidate link, open the code-server terminal in a
+  # real browser, type `gemini`, confirm no auth-method picker appears.
+
+  epic-9-retrospective: optional

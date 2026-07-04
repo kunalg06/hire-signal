@@ -177,13 +177,26 @@ Known gaps are tracked in `_bmad-output/implementation-artifacts/deferred-work.m
 
 ## Next Session — Start Here
 
-**Workflow state: the entire sprint is `done`.** All 7 epics, all stories in `sprint-status.yaml`, are `done` as of 2026-07-03. There is no `ready-for-dev` or `in-progress` story anywhere.
+**Workflow state: deferred-work quick-dev batch fully executed (2026-07-04).** A `bmad-party-mode` roundtable (John/PM, Winston/Architect, Amelia/Dev) triaged all 19 `deferred-work.md` items; tasks #1-#10 (all quick-dev items) were implemented, tested, and verified this session. Full detail of what changed: `deferred-work.md`'s new "Resolved 2026-07-04" section at the top. **Test suite: 83 passing (was 64 at session start; +19 new tests, 0 regressions).**
 
-**Next action:** There is no next story to auto-discover. Options for a future session:
-1. Run `/bmad-correct-course` or talk to the PM agent to scope a Phase 2 / new epic if there's new product direction.
-2. Pick up one of the deferred production gaps below as a new story (each is a real, confirmed issue, not speculative).
-3. Run retrospectives (`epic-1-retrospective` through `epic-7-retrospective` are all `optional`, none done yet) if a look-back is wanted.
-4. Nothing is blocking — the codebase is in a clean, fully-tested, fully-committed state.
+**What shipped this session:**
+1. `evaluation_service.py` — extracted `_parse_dimension_response()`: regex-based fence extraction (handles bare fences and prose-wrapped fences, not just exact ` ```json ` prefix), non-numeric-score coercion, malformed-JSON-shape guards, prompt-building moved inside the try/except, one `DimensionParseError`. Fixes the highest-product-impact bug — a formatting quirk in Gemini's reply no longer silently zero-scores a real candidate.
+2. Same file — composite is now rounded once before classification, so storage and `hire_recommendation` can never visibly disagree near a threshold.
+3. `is_flagged` exposed in `get_candidates_for_challenge()` / the candidates payload (additive only; visibility floor untouched). The re-flagging-overwrite / `flag_events` audit-trail half of this item is still open — hardening epic.
+4. `challenges.py` — non-string/null JSON fields (`{"difficulty": null}`) now 400 cleanly instead of crashing with `AttributeError`.
+5. `challenges.py` — `persisted: bool` added to the generate-challenge response so a client can detect silent catalog-persistence failure.
+6-7. `links.py` / `docker_service.py` — `ai_assistance_mode` is now whitelisted (drift logs a warning and falls back to the default instead of silently going unrestricted) and the `'unguarded'` default is a single shared `Config.DEFAULT_ASSISTANCE_MODE` constant instead of two hardcoded literals.
+8. `docker_service.py` — removed the dead, crash-prone first `_run()` call in `get_file_from_container` (was unreachable for plain files, silently returned `None` for non-UTF-8 content).
+9. `create_app()` now calls `logging.basicConfig()` guarded by `if not logging.root.handlers`, so `flask run` (not just `python run.py`) gets INFO-level logging.
+10. Five `student.py` JS fixes: `submitBtn` re-enabled on failed submission, `escHtml` now escapes single quotes, `startPolling` has a re-entrancy guard, permanent HTTP errors (404/5xx) during polling now show a terminal error state instead of retrying until timeout, Escape key now dismisses open modals. No JS test harness exists in this repo — verified live: started the dev server, generated a real candidate link, fetched the rendered page, confirmed all five fixes present in the served HTML, syntax-checked the extracted script with `node --check`.
+
+New test files this session: `test_generate_link_ai_assistance_mode.py`, `test_get_file_from_container.py`, `test_create_app_logging.py`. Existing files extended: `test_score_8_dimensions.py`, `test_hire_recommendation_thresholds.py`, `test_candidates_endpoint.py`, `test_generate_challenge_endpoint.py`.
+
+**Epic 9 — Production Hardening: scoped 2026-07-04, not started.** The hardening backlog (formerly "task #11") is now real: `_bmad-output/implementation-artifacts/sprint-status.yaml` has `epic-9: backlog` with 6 stories (9-1 through 9-6), all `backlog`. Same convention as Epic 8 — tracked directly in sprint-status.yaml, not retrofitted into `epics-and-stories.md`. Next session: run `bmad-create-story` to pick up 9-1 (or whichever story), or keep deferring — explicitly not urgent. Story 9-5 is blocked on a product/UI-placement decision (not a readiness gap); story 9-6 is a one-time manual QA checklist item, not a code story.
+
+**Explicitly NOT re-opened (settled/accepted v1 scope, confirmed again in this triage):** guarded-mode honor-system bypassability, no-auth-by-design surfaces (`flagged_by`, `/student/preview`), concurrent-override double-counting, plus ~9 items still parked as explicitly benign-at-scale or convention-matching (workspace param in `extract_container_files`, cap-accounting quirks, missing try/except on `get_challenge()`, AC3 wording note, chmod 666 on `GEMINI.md`, test-import coupling in `app/__init__.py`, CSS duplication between student templates, no poll backoff/jitter, background thread not catching `BaseException`).
+
+**Nothing has been committed to git yet** — all changes above are in the working tree, uncommitted, pending user review.
 
 **Notable open production gaps** (all logged in detail in `deferred-work.md`, none fixed — each was found during Epic 7's test-writing and deliberately left as "test documents current behavior, doesn't fix it" per each story's scope):
 - `score_8_dimensions()` fence-stripping only handles the exact ` ```json ` prefix — a bare ` ``` ` fence or prose-wrapped JSON from the LLM silently zero-scores a real candidate (7.1) — **highest product impact of the group**

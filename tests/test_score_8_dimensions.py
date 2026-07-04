@@ -229,3 +229,117 @@ def test_json_fenced_response_parses(monkeypatch, assignment):
     result = run(assignment)
     assert result["composite_score"] == 80.0
     assert set(result["dimensions"]) == EXPECTED_DIMS
+
+
+def test_bare_fence_without_json_tag_parses(monkeypatch, assignment):
+    """A ``` fence with no 'json' language tag must not silently zero-score."""
+    fenced = "```\n" + make_response({d: 80 for d in ALL_DIMS}) + "\n```"
+    mock_chat(monkeypatch, fenced)
+    result = run(assignment)
+    assert result["composite_score"] == 80.0
+    assert set(result["dimensions"]) == EXPECTED_DIMS
+
+
+def test_prose_wrapped_fence_parses(monkeypatch, assignment):
+    """Prose before the fence must not defeat extraction."""
+    wrapped = ("Here is the evaluation:\n```json\n"
+               + make_response({d: 80 for d in ALL_DIMS}) + "\n```\nThanks!")
+    mock_chat(monkeypatch, wrapped)
+    result = run(assignment)
+    assert result["composite_score"] == 80.0
+    assert set(result["dimensions"]) == EXPECTED_DIMS
+
+
+def test_truncated_fence_missing_closing_backticks_still_parses(monkeypatch, assignment):
+    """max_tokens can truncate a response before its closing ``` — the
+    fence must still be recoverable from the opening marker alone."""
+    truncated = "```json\n" + make_response({d: 80 for d in ALL_DIMS})
+    mock_chat(monkeypatch, truncated)
+    result = run(assignment)
+    assert result["composite_score"] == 80.0
+    assert set(result["dimensions"]) == EXPECTED_DIMS
+
+
+def test_unfenced_response_with_embedded_backticks_is_not_corrupted(monkeypatch, assignment):
+    """A fully valid, UNFENCED response whose rationale text happens to
+    contain a literal ``` must parse untouched — the fence-stripping
+    fallback must never fire on already-valid JSON."""
+    scores = {d: 80 for d in ALL_DIMS}
+    payload = {
+        "dimensions": {d: {"score": s, "rationale": "used ```print(x)``` to debug"}
+                       for d, s in scores.items()},
+        "recommendation_rationale": "employer-facing summary",
+    }
+    mock_chat(monkeypatch, json.dumps(payload))
+    result = run(assignment)
+    assert result["composite_score"] == 80.0
+    assert set(result["dimensions"]) == EXPECTED_DIMS
+    assert result["dimensions"]["problem_decomposition"]["rationale"] == \
+        "used ```print(x)``` to debug"
+
+
+def test_last_of_multiple_fenced_blocks_is_preferred(monkeypatch, assignment):
+    """If a response contains more than one fenced JSON block (e.g. a draft
+    followed by a final answer), the LAST block wins."""
+    draft = make_response({d: 10 for d in ALL_DIMS})
+    final = make_response({d: 80 for d in ALL_DIMS})
+    wrapped = f"Draft:\n```json\n{draft}\n```\nFinal:\n```json\n{final}\n```"
+    mock_chat(monkeypatch, wrapped)
+    result = run(assignment)
+    assert result["composite_score"] == 80.0
+
+
+# ── Malformed response shapes: must degrade to the safe default, never crash ─
+
+@pytest.mark.parametrize("payload", ["[]", "null", "42"])
+def test_non_dict_top_level_returns_safe_default(monkeypatch, assignment, payload):
+    mock_chat(monkeypatch, payload)
+    assert_safe_default(run(assignment))
+
+
+def test_non_dict_top_level_is_retried_before_falling_back(monkeypatch, assignment):
+    """A bad-shape response gets the same retry budget as generate_challenge's
+    validate= path — it shouldn't zero-score on the first bad draw alone."""
+    calls = []
+
+    def flaky(*args, **kwargs):
+        calls.append(1)
+        if len(calls) < 3:
+            return "null"
+        return make_response({d: 80 for d in ALL_DIMS})
+
+    monkeypatch.setattr(LLMService, "chat", flaky)
+    result = run(assignment)
+    assert len(calls) == 3
+    assert result["composite_score"] == 80.0
+
+
+def test_non_dict_dimensions_returns_safe_default(monkeypatch, assignment):
+    mock_chat(monkeypatch, json.dumps({"dimensions": "not-a-dict",
+                                        "recommendation_rationale": "r"}))
+    assert_safe_default(run(assignment))
+
+
+def test_dimension_entry_missing_score_key_defaults_to_zero(monkeypatch, assignment):
+    payload = {
+        "dimensions": {d: {"rationale": "evidence"} for d in ALL_DIMS},
+        "recommendation_rationale": "r",
+    }
+    mock_chat(monkeypatch, json.dumps(payload))
+    result = run(assignment)
+    assert result["composite_score"] == 0.0
+    for d in EXPECTED_DIMS:
+        assert result["dimensions"][d]["score"] == 0
+
+
+def test_non_numeric_dimension_score_coerced_to_zero(monkeypatch, assignment):
+    payload = {
+        "dimensions": {d: {"score": "high", "rationale": "evidence"} for d in ALL_DIMS},
+        "recommendation_rationale": "r",
+    }
+    mock_chat(monkeypatch, json.dumps(payload))
+    result = run(assignment)
+    assert result["composite_score"] == 0.0
+    assert result["hire_recommendation"] == "pass"
+    for d in EXPECTED_DIMS:
+        assert result["dimensions"][d]["score"] == 0

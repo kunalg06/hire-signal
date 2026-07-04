@@ -111,8 +111,12 @@ class DatabaseService:
             ''', (submission_id,))
             return cursor.fetchone()
 
-    def flag_submission(self, submission_id, reason, flagged_by=None):
-        """Flag a submission for manual review"""
+    def flag_submission(self, submission_id, reason, flagged_by=None, event_id=None):
+        """Flag a submission for manual review. When event_id is provided,
+        also appends one row to the append-only flag_events audit log in
+        the SAME transaction as the flag update — so a crash or transient
+        error between the two writes can never leave a submission flagged
+        with no corresponding audit-trail entry (Story 9.2 hardening)."""
         with self.db.get_connection() as conn:
             cursor = conn.cursor()
             cursor.execute('''
@@ -120,11 +124,24 @@ class DatabaseService:
                 SET is_flagged = 1, flag_reason = ?, flag_by = ?, flagged_at = ?
                 WHERE submission_id = ?
             ''', (reason, flagged_by, datetime.now().isoformat(), submission_id))
+            updated = cursor.rowcount > 0
+            if updated and event_id:
+                cursor.execute('''
+                    INSERT INTO flag_events (id, submission_id, reason, flagged_by)
+                    VALUES (?, ?, ?, ?)
+                ''', (event_id, submission_id, reason, flagged_by))
             conn.commit()
-            return cursor.rowcount > 0
+            return updated
 
-    def override_hire_evaluation(self, submission_id, override_recommendation, override_rationale):
-        """Apply human override — original AI composite_score and recommendation are never changed"""
+    def override_hire_evaluation(self, submission_id, override_recommendation, override_rationale,
+                                 ai_recommendation=None, override_id=None):
+        """Apply human override — original AI composite_score and
+        recommendation are never changed. When override_id is provided
+        (with ai_recommendation), also appends one row to the append-only
+        score_overrides audit log in the SAME transaction as the override
+        update — so a crash or transient error between the two writes can
+        never leave an override applied with no corresponding audit-trail
+        entry (Story 9.2 hardening)."""
         with self.db.get_connection() as conn:
             cursor = conn.cursor()
             cursor.execute('''
@@ -134,8 +151,16 @@ class DatabaseService:
                     override_rationale = ?
                 WHERE submission_id = ?
             ''', (override_recommendation, override_rationale, submission_id))
+            updated = cursor.rowcount > 0
+            if updated and override_id:
+                cursor.execute('''
+                    INSERT INTO score_overrides
+                        (id, submission_id, ai_recommendation, human_recommendation, override_rationale)
+                    VALUES (?, ?, ?, ?, ?)
+                ''', (override_id, submission_id, ai_recommendation,
+                      override_recommendation, override_rationale))
             conn.commit()
-            return cursor.rowcount > 0
+            return updated
 
     def list_submissions(self, recommendation_filter=None, assignment_id_filter=None):
         """List all submissions with hire evaluation, newest first. Optional filters."""
@@ -236,6 +261,30 @@ class DatabaseService:
             ''', (submission_id,))
             return cursor.fetchall()
 
+    def get_dimension_scores_for_submissions(self, submission_ids):
+        """Batch-fetch dimension scores for multiple submissions in one query,
+        grouped by submission_id — avoids the N+1 pattern in candidate ranking
+        (see deferred-work.md / Story 9.1). Each value has the same row shape
+        get_dimension_scores() returns (dimension, score, rationale,
+        scoring_method, scored_at), just grouped instead of pre-filtered.
+        """
+        if not submission_ids:
+            return {}
+        with self.db.get_connection() as conn:
+            cursor = conn.cursor()
+            placeholders = ','.join('?' * len(submission_ids))
+            cursor.execute(f'''
+                SELECT submission_id, dimension, score, rationale, scoring_method, scored_at
+                FROM dimension_scores
+                WHERE submission_id IN ({placeholders})
+                ORDER BY submission_id, dimension ASC
+            ''', submission_ids)
+            rows = cursor.fetchall()
+        grouped = {}
+        for row in rows:
+            grouped.setdefault(row[0], []).append(row[1:])
+        return grouped
+
     def create_hire_evaluation(self, eval_id, submission_id, composite_score,
                                recommendation, dimension_weights_json, narrative):
         """Persist hire verdict with dimension weights snapshot"""
@@ -299,7 +348,8 @@ class DatabaseService:
                     he.composite_score,
                     he.recommendation,
                     he.narrative,
-                    he.evaluated_at
+                    he.evaluated_at,
+                    s.is_flagged
                 FROM submissions s
                 JOIN assignments a ON s.assignment_id = a.id
                 LEFT JOIN hire_evaluations he ON s.submission_id = he.submission_id
@@ -410,19 +460,11 @@ class DatabaseService:
             return cursor.fetchall()
 
     # ── Override calibration audit methods ────────────────────────────────────
-
-    def log_score_override(self, override_id, submission_id, ai_recommendation,
-                           human_recommendation, override_rationale):
-        """Append one override event to the immutable calibration audit log"""
-        with self.db.get_connection() as conn:
-            cursor = conn.cursor()
-            cursor.execute('''
-                INSERT INTO score_overrides
-                    (id, submission_id, ai_recommendation, human_recommendation, override_rationale)
-                VALUES (?, ?, ?, ?, ?)
-            ''', (override_id, submission_id, ai_recommendation,
-                  human_recommendation, override_rationale))
-            conn.commit()
+    # log_score_override()/log_flag_event() no longer exist as separate calls —
+    # their INSERTs were folded into override_hire_evaluation()/flag_submission()
+    # above so the audit-log write is atomic with the state-mutating update
+    # (Story 9.2 hardening: a crash between two separate commits could
+    # otherwise leave a flag/override applied with no audit-trail row).
 
     def get_override_analytics(self):
         """Return aggregated override stats for the analytics endpoint"""

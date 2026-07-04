@@ -6,6 +6,7 @@ from flask import Blueprint, request, jsonify
 from app.services.evaluation_service import EvaluationService
 from app.services.database_service import DatabaseService
 from app.utils.helpers import IDGenerator
+from app.config import Config
 
 challenges_bp = Blueprint('challenges', __name__, url_prefix='/api')
 db_service = DatabaseService()
@@ -14,7 +15,10 @@ logger = logging.getLogger(__name__)
 VALID_CHALLENGE_TYPES = {'bug_fix', 'feature_extension', 'refactoring', 'optimization'}
 VALID_SKILL_AREAS = {'api_integration', 'rate_limiting', 'data_pipeline', 'llm_usage', 'server_monitoring', 'game_logic'}
 VALID_DIFFICULTIES = {'easy', 'medium', 'hard'}
-VALID_MODES = {'guarded', 'unguarded'}
+# Shared with app/routes/links.py and app/services/docker_service.py — see
+# Config.VALID_ASSISTANCE_MODES's own comment on why this must not be a
+# second independent literal.
+VALID_MODES = Config.VALID_ASSISTANCE_MODES
 
 DIM_KEYS = [
     'problem_decomposition', 'first_principles_thinking', 'creative_problem_solving',
@@ -49,11 +53,17 @@ def generate_challenge():
     """Generate a market-aligned coding challenge and persist it to the catalog"""
     data = request.get_json() or {}
 
-    problem_statement  = data.get('problem_statement', '').strip()
-    difficulty         = data.get('difficulty', '').strip()
-    challenge_type     = data.get('challenge_type', 'feature_extension').strip()
-    skill_area         = data.get('skill_area', 'api_integration').strip()
-    ai_assistance_mode = data.get('ai_assistance_mode', 'unguarded').strip()
+    def _str_field(key, default=''):
+        # Coerce non-string values (e.g. an explicit `null`) to the default
+        # instead of crashing .strip() with an AttributeError.
+        value = data.get(key)
+        return (value if isinstance(value, str) else default).strip()
+
+    problem_statement  = _str_field('problem_statement')
+    difficulty         = _str_field('difficulty')
+    challenge_type     = _str_field('challenge_type', 'feature_extension')
+    skill_area         = _str_field('skill_area', 'api_integration')
+    ai_assistance_mode = _str_field('ai_assistance_mode', 'unguarded')
 
     # Validate required fields
     if not problem_statement:
@@ -84,6 +94,7 @@ def generate_challenge():
 
     # Persist to catalog as unpublished draft
     challenge_id = IDGenerator.generate_uuid()
+    persisted = True
     try:
         db_service.create_challenge(
             challenge_id=challenge_id,
@@ -101,10 +112,12 @@ def generate_challenge():
         # Generation succeeded — return it even if persist fails
         logger.warning("Could not persist challenge to catalog: %s", e)
         challenge_id = None
+        persisted = False
 
     return jsonify({
         **challenge,
         'challenge_id':       challenge_id,
+        'persisted':          persisted,
         'challenge_type':     challenge_type,
         'skill_area':         skill_area,
         'difficulty':         difficulty,
@@ -211,10 +224,12 @@ def get_challenge_candidates(challenge_id):
         return jsonify({'error': 'order must be asc or desc'}), 400
 
     rows = db_service.get_candidates_for_challenge(challenge_id)
+    submission_ids = [row[0] for row in rows]
+    dims_by_submission = db_service.get_dimension_scores_for_submissions(submission_ids)
     candidates = []
     for row in rows:
         submission_id = row[0]
-        dim_rows = db_service.get_dimension_scores(submission_id)
+        dim_rows = dims_by_submission.get(submission_id, [])
         dimensions = {r[0]: {'score': r[1], 'rationale': r[2]} for r in dim_rows}
         candidates.append({
             'submission_id':            row[0],
@@ -226,6 +241,7 @@ def get_challenge_candidates(challenge_id):
             'recommendation_rationale': row[6],
             'evaluated_at':             row[7],
             'is_evaluated':             row[7] is not None,
+            'is_flagged':               bool(row[8]),
             'dimensions':               dimensions,
         })
 

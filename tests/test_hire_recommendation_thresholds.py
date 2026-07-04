@@ -132,17 +132,16 @@ def test_non_uniform_composite_landing_exactly_on_85_is_strong_hire(
     assert result["hire_recommendation"] == "strong_hire"
 
 
-# ── Documents a real inconsistency: recommendation branches on the PRE-round
-#    composite, but composite_score stores the POST-round value. Near a
-#    boundary the two can visibly disagree (see deferred-work.md). ─────────
+# ── Regression: composite is rounded ONCE, then classification and storage
+#    both use that same rounded value — a composite of 84.996 rounds to 85.0
+#    and must be classified "strong_hire", not "hire" (see deferred-work.md
+#    for the pre-fix inconsistency this replaces). ───────────────────────────
 
-def test_stored_composite_can_round_up_past_the_recommendation_boundary(
+def test_composite_rounding_up_to_85_classifies_strong_hire(
         monkeypatch, assignment):
     result = score_at(monkeypatch, assignment, 84.996)
-    # Pre-round 84.996 < 85 -> classified "hire" ...
-    assert result["hire_recommendation"] == "hire"
-    # ... but the stored score rounds up to 85.0, visually implying strong_hire.
     assert result["composite_score"] == 85.0
+    assert result["hire_recommendation"] == "strong_hire"
 
 
 # ── AC 5: thresholds asserted as literals, not the dict under test ─────────

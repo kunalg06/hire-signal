@@ -168,6 +168,19 @@ class Database:
                 )
             ''')
 
+            # Flag audit log — immutable event log for flag lifecycle history
+            # (Story 9.2; mirrors score_overrides exactly — see deferred-work.md)
+            cursor.execute('''
+                CREATE TABLE IF NOT EXISTS flag_events (
+                    id TEXT PRIMARY KEY,
+                    submission_id TEXT NOT NULL,
+                    reason TEXT NOT NULL,
+                    flagged_by TEXT,
+                    flagged_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                    FOREIGN KEY(submission_id) REFERENCES submissions(submission_id)
+                )
+            ''')
+
             conn.commit()
 
         # Schema migration: add challenge_id to assignments if not present

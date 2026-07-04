@@ -2,12 +2,18 @@ import json
 import logging
 import os
 import io
+import re
 import tarfile
 from app.config import Config
 from app.services.llm_service import LLMService
 from app.services.session_log_service import SessionLogService
 
 logger = logging.getLogger(__name__)
+
+
+class DimensionParseError(Exception):
+    """Raised when a Gemini scoring response's top-level shape can't be trusted."""
+
 
 class EvaluationService:
     """Code evaluation service — LLM calls routed through LLMService."""
@@ -94,12 +100,8 @@ class EvaluationService:
             response_text = LLMService.chat(
                 prompt, max_tokens=max_tokens, response_schema=response_schema,
             )
-            if response_text.startswith("```"):
-                response_text = response_text.split("```json")[-1].split("```")[0].strip()
-                if not response_text:
-                    response_text = response_text.split("```")[-2].strip()
             try:
-                parsed = json.loads(response_text)
+                parsed = EvaluationService._parse_json_response(response_text)
                 if validate is not None:
                     validate(parsed)
                 return parsed
@@ -110,6 +112,38 @@ class EvaluationService:
                     attempt + 1, max_retries, e,
                 )
         raise last_error
+
+    @staticmethod
+    def _parse_json_response(response_text: str) -> dict:
+        """
+        Parse a Gemini response as JSON, tolerating a wrapping code fence.
+
+        Tries the raw text FIRST: most responses (response_schema/JSON mode)
+        are unfenced, and parsing raw means a fence-stripping regex never
+        touches a response that is already valid — so a ``` that merely
+        appears inside a string value (e.g. starter_code containing a
+        fenced example in a docstring) can never corrupt otherwise-valid
+        JSON. Only on failure does it look for a wrapping fence.
+
+        The closing fence is optional, since max_tokens can truncate a
+        response before it. If more than one fenced block is present, the
+        LAST one is tried first (a model re-drafting produces its final
+        answer last).
+        """
+        try:
+            return json.loads(response_text)
+        except json.JSONDecodeError:
+            pass
+
+        blocks = re.findall(r"```(?:json)?\s*(.*?)(?:```|\Z)", response_text, re.DOTALL)
+        for block in reversed(blocks):
+            try:
+                return json.loads(block.strip())
+            except json.JSONDecodeError:
+                continue
+
+        # Nothing recovered — raise the original (unfenced) parse failure.
+        return json.loads(response_text)
 
     @staticmethod
     def extract_container_files(container_id: str,
@@ -161,6 +195,44 @@ class EvaluationService:
             return {}
 
     @staticmethod
+    def _parse_dimension_response(result) -> dict:
+        """
+        Validate and coerce a parsed Gemini scoring response into
+        {dimension: {"score": number, "rationale": str}} for every required
+        dimension.
+
+        Raises DimensionParseError if the top-level shape can't be trusted
+        at all (caller falls back to the safe default). A malformed
+        individual dimension entry — missing, wrong type, or a non-numeric
+        score — is coerced to a zero score with a diagnostic rationale
+        instead of raising, so one bad dimension doesn't zero the whole
+        submission.
+        """
+        if not isinstance(result, dict):
+            raise DimensionParseError(
+                f"top-level response is {type(result).__name__}, expected object")
+
+        raw_dims = result.get("dimensions")
+        if not isinstance(raw_dims, dict):
+            raw_dims = {}
+
+        dims = {}
+        for dim in EvaluationService.DIMENSION_WEIGHTS:
+            entry = raw_dims.get(dim)
+            if not isinstance(entry, dict):
+                dims[dim] = {"score": 0, "rationale": "dimension missing from response"}
+                continue
+            score = entry.get("score")
+            if not isinstance(score, (int, float)) or isinstance(score, bool):
+                dims[dim] = {"score": 0,
+                             "rationale": "dimension score was non-numeric in Gemini response"}
+                continue
+            rationale = entry.get("rationale", "")
+            dims[dim] = {"score": score,
+                         "rationale": rationale if isinstance(rationale, str) else ""}
+        return dims
+
+    @staticmethod
     def score_8_dimensions(session_logs: list,
                            file_snapshot: dict,
                            assignment: dict) -> dict:
@@ -169,33 +241,45 @@ class EvaluationService:
         Returns the full parsed result dict.  On any failure returns a
         safe default (all dimensions score=0, recommendation='pass').
         """
-        # ── Format session logs ──────────────────────────────────────────
-        if session_logs:
-            log_lines = []
-            for i, log in enumerate(session_logs[:80], 1):  # cap at 80 interactions
-                prompt = (log.get('prompt') or '')[:400]
-                response = (log.get('response_summary') or '')[:400]
-                log_lines.append(
-                    f"[{i}] Candidate prompt: {prompt}\n"
-                    f"    AI response summary: {response}\n"
-                    f"    File changes: {log.get('file_changes_count', 0)}"
-                )
-            logs_text = '\n'.join(log_lines)
-        else:
-            logs_text = "No Gemini session logs recorded for this submission."
+        # ── Safe default returned on any failure ─────────────────────────
+        def _default_result(reason: str) -> dict:
+            dims = {d: {"score": 0, "rationale": reason}
+                    for d in EvaluationService.DIMENSION_WEIGHTS}
+            return {
+                "dimensions": dims,
+                "composite_score": 0.0,
+                "hire_recommendation": "pass",
+                "recommendation_rationale": reason,
+            }
 
-        # ── Format file snapshot ─────────────────────────────────────────
-        if file_snapshot:
-            file_sections = []
-            for path, content in file_snapshot.items():
-                file_sections.append(f"### {path}\n```\n{content}\n```")
-            files_text = '\n\n'.join(file_sections)
-        else:
-            files_text = "No workspace files retrieved."
+        try:
+            # ── Format session logs ────────────────────────────────────────
+            if session_logs:
+                log_lines = []
+                for i, log in enumerate(session_logs[:80], 1):  # cap at 80 interactions
+                    prompt = (log.get('prompt') or '')[:400]
+                    response = (log.get('response_summary') or '')[:400]
+                    log_lines.append(
+                        f"[{i}] Candidate prompt: {prompt}\n"
+                        f"    AI response summary: {response}\n"
+                        f"    File changes: {log.get('file_changes_count', 0)}"
+                    )
+                logs_text = '\n'.join(log_lines)
+            else:
+                logs_text = "No Gemini session logs recorded for this submission."
 
-        # ── Build prompt ─────────────────────────────────────────────────
-        weights = EvaluationService.DIMENSION_WEIGHTS
-        scoring_prompt = f"""You are a senior engineering hiring assessor evaluating a candidate's \
+            # ── Format file snapshot ───────────────────────────────────────
+            if file_snapshot:
+                file_sections = []
+                for path, content in file_snapshot.items():
+                    file_sections.append(f"### {path}\n```\n{content}\n```")
+                files_text = '\n\n'.join(file_sections)
+            else:
+                files_text = "No workspace files retrieved."
+
+            # ── Build prompt ───────────────────────────────────────────────
+            weights = EvaluationService.DIMENSION_WEIGHTS
+            scoring_prompt = f"""You are a senior engineering hiring assessor evaluating a candidate's \
 AI-assisted coding competency. Score the candidate across 8 dimensions based on their session \
 logs and submitted files.
 
@@ -263,39 +347,32 @@ Respond ONLY with valid JSON — no markdown fences, no prose:
   "recommendation_rationale": "3-4 sentence employer-facing summary"
 }}"""
 
-        # ── Safe default returned on any failure ─────────────────────────
-        def _default_result(reason: str) -> dict:
-            dims = {d: {"score": 0, "rationale": reason}
-                    for d in EvaluationService.DIMENSION_WEIGHTS}
-            return {
-                "dimensions": dims,
-                "composite_score": 0.0,
-                "hire_recommendation": "pass",
-                "recommendation_rationale": reason,
-            }
+            def _validate_scoring_shape(parsed) -> None:
+                if not isinstance(parsed, dict):
+                    raise ValueError(
+                        f"top-level response is {type(parsed).__name__}, expected object")
 
-        try:
             result = EvaluationService._call_llm_for_json(
                 scoring_prompt, max_tokens=2000,
                 response_schema=EvaluationService._SCORING_RESPONSE_SCHEMA,
+                validate=_validate_scoring_shape,
             )
+            dims = EvaluationService._parse_dimension_response(result)
         except Exception as e:
             logger.error("8-dimension scoring error: %s", e)
             return _default_result(f"Scoring error: {str(e)[:120]}")
 
-        # ── Validate all 8 keys present ──────────────────────────────────
-        dims = result.get("dimensions", {})
-        for dim in EvaluationService.DIMENSION_WEIGHTS:
-            if dim not in dims:
-                dims[dim] = {"score": 0, "rationale": "dimension missing from response"}
         result["dimensions"] = dims
 
         # ── Python-enforced composite + thresholds (never trust Gemini's) ─
+        # Round once, then classify AND store the same rounded value — a
+        # pre-round composite (e.g. 84.996) must not classify as "hire"
+        # while the stored, post-round composite reads 85.0 ("strong_hire").
         composite = sum(
             dims[d]["score"] * w
             for d, w in EvaluationService.DIMENSION_WEIGHTS.items()
         )
-        composite = min(100.0, max(0.0, composite))
+        composite = round(min(100.0, max(0.0, composite)), 2)
 
         thresholds = EvaluationService.HIRE_THRESHOLDS
         if composite >= thresholds["strong_hire"]:
@@ -307,7 +384,7 @@ Respond ONLY with valid JSON — no markdown fences, no prose:
         else:
             recommendation = "pass"
 
-        result["composite_score"]      = round(composite, 2)
+        result["composite_score"]      = composite
         result["hire_recommendation"]  = recommendation
 
         return result
@@ -373,7 +450,7 @@ Respond ONLY with valid JSON — no markdown fences, no prose:
     def generate_challenge(problem_statement: str, difficulty: str,
                            challenge_type: str = 'feature_extension',
                            skill_area: str = 'api_integration',
-                           ai_assistance_mode: str = 'unguarded') -> dict:
+                           ai_assistance_mode: str = Config.DEFAULT_ASSISTANCE_MODE) -> dict:
         """Generate a market-aligned coding challenge using Gemini"""
         mode_instruction = (
             "The starter code must contain deliberate gaps marked with TODO comments and partial "

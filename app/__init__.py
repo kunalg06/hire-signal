@@ -1,3 +1,4 @@
+import logging
 import os
 from dotenv import load_dotenv
 
@@ -22,6 +23,16 @@ from app.routes.analytics import analytics_bp
 
 def create_app(config_name=None):
     """Application factory with proper template folder"""
+    # Guard, not unconditional config: run.py already calls basicConfig()
+    # when started via `python run.py`, but `flask run` calls create_app()
+    # directly and never touches run.py, leaving the root logger at the
+    # default WARNING level with every logger.info()/debug() dropped silently.
+    if not logging.root.handlers:
+        logging.basicConfig(
+            level=logging.INFO,
+            format='%(asctime)s %(name)s %(levelname)s %(message)s'
+        )
+
     # Get project root directory
     project_root = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 

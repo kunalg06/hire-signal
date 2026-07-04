@@ -34,6 +34,11 @@ class Config:
     DOCKER_PORT_RANGE_END = 7900
     DOCKER_IMAGE = os.getenv('DOCKER_IMAGE', 'coding-platform-student:latest')
 
+    # AI assistance mode — shared constant so links.py and docker_service.py
+    # can't drift out of sync on the default/whitelist (see deferred-work.md).
+    DEFAULT_ASSISTANCE_MODE = 'unguarded'
+    VALID_ASSISTANCE_MODES = {'guarded', 'unguarded'}
+
 class DevelopmentConfig(Config):
     """Development configuration"""
     DEBUG = True

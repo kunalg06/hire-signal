@@ -514,6 +514,13 @@ def student_dashboard(link_id):
     function openSubmitModal()  {{ document.getElementById('submitModal').classList.add('show'); }}
     function closeSubmitModal() {{ document.getElementById('submitModal').classList.remove('show'); }}
 
+    // ── Dismiss any open modal with Escape (keyboard-only users) ───────
+    document.addEventListener('keydown', function(e) {{
+        if (e.key !== 'Escape') return;
+        closeNudgeModal();
+        closeSubmitModal();
+    }});
+
     // ── Submit ─────────────────────────────────────────────────────────
     async function submitAssessment() {{
         const confirmBtn = document.getElementById('confirmBtn');
@@ -555,13 +562,14 @@ def student_dashboard(link_id):
         }} finally {{
             confirmBtn.disabled = false;
             confirmBtn.textContent = 'Yes, Submit';
+            submitBtn.disabled = false;
         }}
     }}
 
     // ── Submission result helpers ──────────────────────────────────────
     function escHtml(s) {{
-        return String(s || '').replace(/[&<>"]/g, function(c) {{
-            return ({{'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}})[c];
+        return String(s || '').replace(/[&<>"']/g, function(c) {{
+            return ({{'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}})[c];
         }});
     }}
 
@@ -651,7 +659,19 @@ def student_dashboard(link_id):
             'You may close this tab.</div>';
     }}
 
+    let _pollingInFlight = false;
+
     async function startPolling(submissionId) {{
+        if (_pollingInFlight) return;
+        _pollingInFlight = true;
+        try {{
+            await _pollSubmission(submissionId);
+        }} finally {{
+            _pollingInFlight = false;
+        }}
+    }}
+
+    async function _pollSubmission(submissionId) {{
         if (!submissionId) {{
             document.getElementById('assessment').style.display = 'none';
             document.getElementById('submitted').style.display  = 'flex';
@@ -665,25 +685,53 @@ def student_dashboard(link_id):
 
         const POLL_MS  = 3000;
         const TIMEOUT  = 60000;
+        const MAX_CONSECUTIVE_SERVER_ERRORS = 3;
         const deadline = Date.now() + TIMEOUT;
+        let consecutiveServerErrors = 0;
 
         while (Date.now() < deadline) {{
             await new Promise(r => setTimeout(r, POLL_MS));
             try {{
-                const res  = await fetch('/api/submission/' + submissionId);
+                const res = await fetch('/api/submission/' + submissionId);
                 if (res.ok) {{
+                    consecutiveServerErrors = 0;
                     const data = await res.json();
                     if (data.hire_evaluation && data.hire_evaluation.evaluated_at) {{
                         showSubmittedResults(data);
                         return;
                     }}
+                }} else if (res.status === 404) {{
+                    // The submission genuinely doesn't exist — this can
+                    // never resolve on its own, unlike a transient 5xx.
+                    showSubmittedError(res.status);
+                    return;
+                }} else if (res.status >= 500) {{
+                    // Give a transient error (e.g. a brief DB lock) a small
+                    // budget before treating it as permanent.
+                    consecutiveServerErrors++;
+                    if (consecutiveServerErrors >= MAX_CONSECUTIVE_SERVER_ERRORS) {{
+                        showSubmittedError(res.status);
+                        return;
+                    }}
                 }}
+                // Other 4xx (unexpected) — treat as transient, keep polling.
             }} catch (_) {{
                 // network hiccup - keep polling
             }}
         }}
 
         showSubmittedTimeout();
+    }}
+
+    function showSubmittedError(status) {{
+        document.getElementById('submittedCard').innerHTML =
+            '<div style="font-size:3em;margin-bottom:16px;">error</div>' +
+            '<h2 style="color:#333;font-size:1.5em;margin-bottom:12px;">Something Went Wrong</h2>' +
+            '<p style="color:#666;line-height:1.7;margin-bottom:24px;font-size:0.95em;">' +
+            'We could not retrieve your evaluation (server error ' + status + ').<br>' +
+            'Please contact your employer — this will not resolve on its own.</p>' +
+            '<div style="background:#ffebee;border-radius:8px;padding:14px 18px;font-size:0.85em;color:#b71c1c;font-weight:600;">' +
+            'You may close this tab.</div>';
     }}
 
     // ── Toast ──────────────────────────────────────────────────────────

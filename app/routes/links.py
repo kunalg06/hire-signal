@@ -26,11 +26,18 @@ def generate_link(assignment_id):
     # to evaluation_criteria — index 5 is created_at. See Story 6.5 Dev Notes.
     challenge_id = assignment_row[6] if len(assignment_row) > 6 else None
 
-    ai_assistance_mode = 'unguarded'
+    ai_assistance_mode = Config.DEFAULT_ASSISTANCE_MODE
     if challenge_id:
         challenge_row = db_service.get_challenge(challenge_id)
         if challenge_row:
-            ai_assistance_mode = challenge_row[9]
+            mode = challenge_row[9]
+            if mode in Config.VALID_ASSISTANCE_MODES:
+                ai_assistance_mode = mode
+            else:
+                logger.warning(
+                    "Challenge %s has unrecognized ai_assistance_mode %r - "
+                    "falling back to %s", challenge_id, mode,
+                    Config.DEFAULT_ASSISTANCE_MODE)
 
     # Create unique link
     link_id = IDGenerator.generate_link_id()

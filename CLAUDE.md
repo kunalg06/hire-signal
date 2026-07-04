@@ -66,7 +66,7 @@ Single-file HTML/CSS/vanilla-JS employer dashboard (~85KB). No build step, no fr
 
 ### Database — SQLite, no ORM
 
-10 tables via raw SQL in `app/models/database.py`. See **DB Schema** section below for the full table list. Migrations are `ALTER TABLE ... ADD COLUMN` wrapped in `try/except sqlite3.OperationalError`, run idempotently every time `init_db()` is called.
+11 tables via raw SQL in `app/models/database.py`. See **DB Schema** section below for the full table list. Migrations are `ALTER TABLE ... ADD COLUMN` wrapped in `try/except sqlite3.OperationalError`, run idempotently every time `init_db()` is called.
 
 ---
 
@@ -184,7 +184,7 @@ Extend `VALID_CHALLENGE_TYPES`/`VALID_SKILL_AREAS` in `app/routes/challenges.py`
 
 ---
 
-## 📊 DB Schema — 10 Tables
+## 📊 DB Schema — 11 Tables
 
 | Table | Purpose | Key columns |
 |---|---|---|
@@ -198,6 +198,7 @@ Extend `VALID_CHALLENGE_TYPES`/`VALID_SKILL_AREAS` in `app/routes/challenges.py`
 | `challenges` | Challenge catalog (generated or curated) | `id, title, domain, description, evaluation_rubric, starter_code, challenge_type, skill_area, difficulty, ai_assistance_mode, is_published, created_at` |
 | `comparison_sessions` | Saved side-by-side comparison views | `id, challenge_id, name, submission_ids_json, created_at` |
 | `score_overrides` | Append-only human-override audit log | `id, submission_id, ai_recommendation, human_recommendation, override_rationale, overridden_at` |
+| `flag_events` | Append-only flag-lifecycle audit log | `id, submission_id, reason, flagged_by, flagged_at` |
 
 ---
 
@@ -270,6 +271,7 @@ Full request/response shapes and worked examples: `docs/API_REFERENCE.md`.
 - **Score thresholds are Python-enforced** — never trust Claude's own threshold/recommendation output; always recompute from the raw dimension scores.
 - **Visibility floor** — never hide a candidate from the ranked list; un-evaluated candidates sort last, not omitted.
 - **`score_overrides` is append-only** — never UPDATE or DELETE.
+- **`flag_events` is append-only** — never UPDATE or DELETE; mirrors `score_overrides`. Written atomically alongside the `submissions` flag update inside `DatabaseService.flag_submission()` (same transaction, one commit) so a crash between the two writes can never lose audit history.
 - **`hire_evaluations.composite_score`/`.recommendation` are read-only after creation** — an override only ever writes the `override_*` columns.
 - **No `sandbox` attribute on the student iframe** — code-server needs service workers.
 - **`db_service` is an import-time singleton per route module** — see the trap section above.

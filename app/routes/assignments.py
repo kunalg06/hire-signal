@@ -83,11 +83,13 @@ def get_candidates(assignment_id):
         return jsonify({"detail": "Assignment not found"}), 404
 
     rows = db_service.get_candidates_for_assignment(assignment_id)
+    submission_ids = [row[0] for row in rows]
+    dims_by_submission = db_service.get_dimension_scores_for_submissions(submission_ids)
 
     candidates = []
     for rank, row in enumerate(rows, 1):
         submission_id = row[0]
-        dim_rows = db_service.get_dimension_scores(submission_id)
+        dim_rows = dims_by_submission.get(submission_id, [])
         dimensions = {r[0]: {"score": r[1], "rationale": r[2]} for r in dim_rows}
         candidates.append({
             "rank":                     rank,

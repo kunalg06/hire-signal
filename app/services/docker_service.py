@@ -75,13 +75,13 @@ class DockerService:
         if not container_id:
             return None
         try:
-            result = _run(['cp', f'{container_id}:{file_path}', '-'])
-            # docker cp - streams a tar archive to stdout (bytes via text=False needed)
-            result2 = subprocess.run(
+            # docker cp - streams a tar archive to stdout; must run in binary
+            # mode (no text=True) since tar content is not guaranteed UTF-8.
+            result = subprocess.run(
                 ['docker', 'cp', f'{container_id}:{file_path}', '-'],
                 capture_output=True, check=True,
             )
-            with tarfile.open(fileobj=io.BytesIO(result2.stdout)) as tar:
+            with tarfile.open(fileobj=io.BytesIO(result.stdout)) as tar:
                 for member in tar.getmembers():
                     if member.isfile():
                         f = tar.extractfile(member)
@@ -106,7 +106,7 @@ class DockerService:
     @staticmethod
     def inject_workspace_files(container_id: str, title: str, description: str,
                                criteria: str, starter_code: str,
-                               ai_assistance_mode: str = 'unguarded'):
+                               ai_assistance_mode: str = Config.DEFAULT_ASSISTANCE_MODE):
         """
         Write instructions.md and solution.py into /workspace immediately
         after container creation. Story 6.1 three-panel format used for

@@ -277,6 +277,73 @@ def test_unevaluated_candidates_sort_last_in_both_directions(client, db):
     assert unevaluated["dimensions"] == {}
 
 
+# ── is_flagged visibility (party-mode triage 2026-07-04) ───────────────────
+
+def test_flagged_candidate_marked_in_payload_but_not_hidden(client, db):
+    challenge_id = make_challenge(db)
+    flagged_sub = make_evaluated_candidate(db, challenge_id, 90)
+    clean_sub = make_evaluated_candidate(db, challenge_id, 80)
+    db.flag_submission(flagged_sub, "suspected plagiarism", flagged_by="employer-1")
+
+    resp = client.get(f"/api/challenges/{challenge_id}/candidates")
+    body = resp.get_json()
+    by_id = {c["submission_id"]: c for c in body["candidates"]}
+
+    assert by_id[flagged_sub]["is_flagged"] is True
+    assert by_id[clean_sub]["is_flagged"] is False
+    # Visibility floor: flagging never removes or reorders past composite rank
+    assert [c["submission_id"] for c in body["candidates"]] == [flagged_sub, clean_sub]
+
+
+# ── Batched dimension-score fetch (Story 9.1 — N+1 fix) ─────────────────────
+
+def test_dimension_scores_fetched_in_one_batched_call(client, db, monkeypatch):
+    challenge_id = make_challenge(db)
+    make_evaluated_candidate(db, challenge_id, 90)
+    make_evaluated_candidate(db, challenge_id, 70)
+    make_evaluated_candidate(db, challenge_id, 50)
+
+    calls = []
+    original = db.get_dimension_scores_for_submissions
+    def spy(submission_ids):
+        calls.append(submission_ids)
+        return original(submission_ids)
+    monkeypatch.setattr(db, "get_dimension_scores_for_submissions", spy)
+
+    resp = client.get(f"/api/challenges/{challenge_id}/candidates")
+    assert resp.status_code == 200
+    assert len(calls) == 1
+    assert len(calls[0]) == 3
+
+
+def test_batched_dimension_scores_attributed_to_correct_candidate(client, db):
+    challenge_id = make_challenge(db)
+    sub_a = make_evaluated_candidate(db, challenge_id, 80,
+        dimension_scores={d: 10 for d in ALL_DIMS})
+    sub_b = make_evaluated_candidate(db, challenge_id, 80,
+        dimension_scores={d: 90 for d in ALL_DIMS})
+    sub_c = make_evaluated_candidate(db, challenge_id, 80,
+        dimension_scores={d: 50 for d in ALL_DIMS})
+
+    resp = client.get(f"/api/challenges/{challenge_id}/candidates")
+    by_id = {c["submission_id"]: c for c in resp.get_json()["candidates"]}
+    assert by_id[sub_a]["dimensions"]["problem_decomposition"]["score"] == 10
+    assert by_id[sub_b]["dimensions"]["problem_decomposition"]["score"] == 90
+    assert by_id[sub_c]["dimensions"]["problem_decomposition"]["score"] == 50
+
+
+def test_zero_candidates_returns_empty_without_crash(client, db):
+    """No submission_ids -> no WHERE submission_id IN () crash (sqlite3
+    can't parameterize an empty IN list)."""
+    challenge_id = make_challenge(db)
+    resp = client.get(f"/api/challenges/{challenge_id}/candidates")
+    assert resp.status_code == 200
+    body = resp.get_json()
+    assert body["candidates"] == []
+    assert body["dimension_averages"] == {}
+    assert body["total"] == 0
+
+
 # ── Cross-challenge isolation of results (not the DB-file isolation above) ─
 
 def test_candidates_from_other_challenges_are_excluded(client, db):

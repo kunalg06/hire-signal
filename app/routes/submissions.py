@@ -14,6 +14,12 @@ logger = logging.getLogger(__name__)
 
 VALID_RECOMMENDATIONS = {'strong_hire', 'hire', 'select', 'pass'}
 
+def _str_field(data, key, default=''):
+    # Coerce non-string values (e.g. an explicit `null` or a number) to the
+    # default instead of crashing .strip() with an AttributeError.
+    value = data.get(key)
+    return (value if isinstance(value, str) else default).strip()
+
 def evaluate_submission_files(submission_id, assignment, session_logs=None,
                               container_created_at=None, container_id=None,
                               file_snapshot=None):
@@ -355,16 +361,22 @@ def get_session_logs(submission_id):
 def flag_submission(submission_id):
     """Flag a submission for manual review"""
     data = request.get_json() or {}
-    reason = (data.get('reason') or '').strip()
+    reason = _str_field(data, 'reason')
     if not reason:
         return jsonify({'error': 'reason is required'}), 400
 
     if not db_service.get_submission(submission_id):
         return jsonify({'error': 'Submission not found'}), 404
 
-    flagged_by = (data.get('flagged_by') or '').strip() or None
-    if not db_service.flag_submission(submission_id, reason, flagged_by):
+    flagged_by = _str_field(data, 'flagged_by') or None
+    # event_id is written to the flag_events audit log in the SAME
+    # transaction as the flag update (Story 9.2 hardening) — a crash or
+    # transient error between two separate writes could otherwise leave a
+    # submission flagged with no corresponding audit-trail entry.
+    event_id = IDGenerator.generate_uuid()
+    if not db_service.flag_submission(submission_id, reason, flagged_by, event_id=event_id):
         return jsonify({'error': 'Failed to flag submission'}), 500
+
     return jsonify({
         'submission_id': submission_id,
         'is_flagged':    True,
@@ -378,8 +390,8 @@ def flag_submission(submission_id):
 def override_submission(submission_id):
     """Apply human override to the AI hire recommendation"""
     data = request.get_json() or {}
-    override_rec       = (data.get('override_recommendation') or '').strip()
-    override_rationale = (data.get('override_rationale') or '').strip()
+    override_rec       = _str_field(data, 'override_recommendation')
+    override_rationale = _str_field(data, 'override_rationale')
 
     if not override_rec or not override_rationale:
         return jsonify({'error': 'override_recommendation and override_rationale are both required'}), 400
@@ -393,18 +405,15 @@ def override_submission(submission_id):
     if not hire_row:
         return jsonify({'error': 'No evaluation found for this submission — cannot override'}), 409
 
-    if not db_service.override_hire_evaluation(submission_id, override_rec, override_rationale):
+    # override_id is written to the score_overrides audit log in the SAME
+    # transaction as the override update (Story 9.2 hardening) — a crash or
+    # transient error between two separate writes could otherwise leave an
+    # override applied with no corresponding audit-trail entry.
+    override_id = IDGenerator.generate_uuid()
+    if not db_service.override_hire_evaluation(
+            submission_id, override_rec, override_rationale,
+            ai_recommendation=hire_row[1], override_id=override_id):
         return jsonify({'error': 'Failed to apply override'}), 500
-
-    # Log to calibration audit table (Story 4.4)
-    override_log_id = IDGenerator.generate_uuid()
-    db_service.log_score_override(
-        override_log_id,
-        submission_id,
-        hire_row[1],        # original AI recommendation
-        override_rec,       # human override
-        override_rationale,
-    )
 
     return jsonify({
         'submission_id':            submission_id,
