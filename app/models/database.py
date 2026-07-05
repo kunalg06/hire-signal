@@ -210,7 +210,7 @@ class Database:
         # session_links (Story 9.3)
         for _col_sql in [
             'ALTER TABLE session_links ADD COLUMN ai_assistance_mode TEXT',
-            'ALTER TABLE session_links ADD COLUMN guarded_mode_enforced INTEGER DEFAULT 1',
+            'ALTER TABLE session_links ADD COLUMN guarded_mode_enforced INTEGER',
         ]:
             try:
                 with self.get_connection() as conn:

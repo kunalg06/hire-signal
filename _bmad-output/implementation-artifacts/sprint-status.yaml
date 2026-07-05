@@ -35,7 +35,7 @@
 # - Dev moves story to 'review', then runs code-review (fresh context, different LLM recommended)
 
 generated: "2026-07-02"
-last_updated: "2026-07-04"  # updated: Story 9-3 implemented, 115/115 tests passing, marked for review
+last_updated: "2026-07-05"  # updated: Story 9-3 code review complete (migration DEFAULT-backfill bug fixed), 116/116 tests passing, marked done
 project: coding_platforms
 project_key: NOKEY
 tracking_system: file-system
@@ -347,13 +347,19 @@ development_status:
   # No new endpoint added (out of scope per AC6). 104/104 full suite green
   # (101 before this story + 3 new).
 
-  9-3-surface-guarded-mode-injection-failures: review
+  9-3-surface-guarded-mode-injection-failures: done
   # Implemented 2026-07-04: inject_workspace_files() now returns
   # {injected, guarded_mode_enforced} instead of silently returning None;
   # session_links gained ai_assistance_mode/guarded_mode_enforced columns;
   # generate_link() persists the REAL injection result; GET /api/submission
   # surfaces both fields. Backend/API only (AC8), no frontend badge.
-  # 115/115 full suite green (104 before this story + 11 new).
+  # Code review 2026-07-05: migration's `guarded_mode_enforced INTEGER
+  # DEFAULT 1` backfilled pre-existing rows to 1 instead of NULL,
+  # contradicting the documented (None, None) legacy-row contract — fixed
+  # by dropping the DEFAULT clause; regression test added. API_REFERENCE.md
+  # updated for the 2 new fields. 2 items deferred (injected-flag not
+  # surfaced; candidates list doesn't expose guarded_mode_enforced).
+  # 116/116 full suite green.
 
   9-4-session-expiry-during-open-modal: backlog
   # app/routes/student.py: if the countdown timer hits zero while the nudge

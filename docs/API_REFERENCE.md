@@ -164,6 +164,7 @@ Accepts either a `submission_id` or a `link_id` (falls back to the most recent s
   "submission_id": "...", "link_id": "...", "assignment_id": "...", "code": "...",
   "submitted_at": "...", "score": 85.0, "feedback": "...", "assignment_title": "...",
   "is_flagged": false, "flag_reason": null, "flag_by": null, "flagged_at": null,
+  "ai_assistance_mode": "guarded", "guarded_mode_enforced": true,
   "instructions_md": "...", "gemini_logs": "No Gemini session logs available",
   "dimensions": {"problem_decomposition": {"score": 90, "rationale": "...", "scoring_method": "llm_judge"}},
   "hire_evaluation": {
@@ -176,6 +177,8 @@ Accepts either a `submission_id` or a `link_id` (falls back to the most recent s
 ```
 
 `hire_evaluation` is `null` if scoring hasn't completed yet — this is what the frontend polls on. → `404 {"detail": "Submission not found"}`.
+
+`ai_assistance_mode`/`guarded_mode_enforced` (Story 9.3) surface whether a "guarded" assessment actually got its `GEMINI.md` restriction applied to the container — `guarded_mode_enforced` is `false` if the injection failed (assessment may have silently run unguarded). Both are `null` for links that predate this tracking.
 
 ### `GET /api/session-logs/<submission_id>`
 Raw parsed Gemini CLI session log for a submission.

@@ -1,6 +1,6 @@
 # Story 9.3: Surface Guarded-Mode Injection Failures
 
-Status: review
+Status: done
 
 <!-- Note: Validation is optional. Run validate-create-story for quality check before dev-story. -->
 
@@ -43,6 +43,13 @@ so that I never unknowingly trust a "guarded" assessment result that actually ra
   - [x] Add `"ai_assistance_mode"` and `"guarded_mode_enforced"` to the response JSON
 - [x] Add tests covering: guarded-mode success returns `guarded_mode_enforced=True`; guarded-mode `GEMINI.md` write failure (mocked) returns `guarded_mode_enforced=False`; unguarded mode returns `guarded_mode_enforced=True` trivially; the new fields appear correctly in `GET /api/submission/<id_or_link>`'s response for both outcomes (AC: 1, 2, 5, 6, 7)
 - [x] Run the full test suite and confirm no regressions
+
+### Review Findings
+
+- [x] [Review][Patch] Migration `ALTER TABLE session_links ADD COLUMN guarded_mode_enforced INTEGER DEFAULT 1` backfilled every pre-existing row with `1`, contradicting `get_session_link_assistance_info()`'s own docstring contract of `(None, None)` for legacy rows (confirmed by both Blind Hunter and Edge Case Hunter review layers; note AC3's literal wording also specified `DEFAULT 1`, which was itself the source of the contradiction with AC5/6's intent). Fixed by dropping the `DEFAULT 1` clause; regression test added in `tests/test_session_links_migration_legacy_rows.py` [app/models/database.py:213]
+- [x] [Review][Patch] `docs/API_REFERENCE.md`'s `GET /api/submission/<id_or_link>` example response was missing the two new fields. [docs/API_REFERENCE.md:166]
+- [x] [Review][Defer] `inject_workspace_files()`'s `injected` flag (distinguishes total injection failure from a guarded-mode-only `GEMINI.md` failure) is computed but never persisted or surfaced through the API — a total failure (no instructions.md written at all) currently leaves no audit trail. Out of this story's guarded-mode-specific scope. [app/services/docker_service.py:183] — deferred, pre-existing scope boundary
+- [x] [Review][Defer] `/api/challenges/<id>/candidates` doesn't expose `guarded_mode_enforced`, so an employer must open each submission individually to spot an enforcement failure rather than seeing it in the batch/ranked view. [app/routes/challenges.py] — deferred, pre-existing scope boundary
 
 ## Dev Notes
 
