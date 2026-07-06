@@ -4,6 +4,10 @@ whitelist (party-mode triage 2026-07-04; see deferred-work.md).
 DockerService.create_container/inject_workspace_files are monkeypatched so
 no real Docker daemon is required — only the mode-resolution logic in
 app/routes/links.py is under test.
+
+Story 9.7: ai_assistance_mode is now passed to create_container() (which
+also now returns guarded_mode_enforced as its 3rd element), not
+inject_workspace_files() — both mocks below reflect that.
 """
 import pytest
 
@@ -18,14 +22,14 @@ def client(monkeypatch, tmp_path):
     test_db = Database(str(tmp_path / "test.db"))
     test_db.init_db()
     monkeypatch.setattr(links_module.db_service, "db", test_db)
-    monkeypatch.setattr(DockerService, "create_container",
-                        lambda *a, **k: ("fake-container-id", 7100))
 
     captured = {}
-    def capture_inject(*args, **kwargs):
-        captured["ai_assistance_mode"] = kwargs.get("ai_assistance_mode")
-        return {"injected": True, "guarded_mode_enforced": True}
-    monkeypatch.setattr(DockerService, "inject_workspace_files", capture_inject)
+    def capture_create_container(assignment_id, port, ai_assistance_mode=Config.DEFAULT_ASSISTANCE_MODE):
+        captured["ai_assistance_mode"] = ai_assistance_mode
+        return "fake-container-id", 7100, True
+    monkeypatch.setattr(DockerService, "create_container", capture_create_container)
+    monkeypatch.setattr(DockerService, "inject_workspace_files",
+                        lambda *a, **k: {"injected": True})
 
     from app import create_app
     app = create_app("testing")
@@ -105,9 +109,9 @@ def test_successful_guarded_injection_persists_enforced_true(client, db):
 
 def test_failed_guarded_injection_persists_enforced_false(client, db, monkeypatch):
     c, captured = client
-    def failing_inject(*args, **kwargs):
-        return {"injected": True, "guarded_mode_enforced": False}
-    monkeypatch.setattr(DockerService, "inject_workspace_files", failing_inject)
+    def failing_create_container(assignment_id, port, ai_assistance_mode=Config.DEFAULT_ASSISTANCE_MODE):
+        return "fake-container-id", 7100, False
+    monkeypatch.setattr(DockerService, "create_container", failing_create_container)
 
     assignment_id, _ = make_assignment_with_challenge(db, "guarded")
     resp = c.post(f"/api/generate-link/{assignment_id}")

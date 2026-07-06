@@ -1,4 +1,5 @@
 import os
+import tempfile
 from datetime import timedelta
 
 class Config:
@@ -38,6 +39,12 @@ class Config:
     # can't drift out of sync on the default/whitelist (see deferred-work.md).
     DEFAULT_ASSISTANCE_MODE = 'unguarded'
     VALID_ASSISTANCE_MODES = {'guarded', 'unguarded'}
+
+    # Host-side directory for guarded-mode context files, bind-mounted
+    # read-only into the container at creation time (Story 9.7).
+    GUARDED_MODE_HOST_TMP_ROOT = os.getenv(
+        'GUARDED_MODE_HOST_TMP_ROOT',
+        os.path.join(tempfile.gettempdir(), 'hire-signal-guarded-mode'))
 
 class DevelopmentConfig(Config):
     """Development configuration"""

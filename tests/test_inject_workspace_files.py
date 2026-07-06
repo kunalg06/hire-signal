@@ -1,7 +1,12 @@
-"""Story 9.3 — DockerService.inject_workspace_files() must report its
-outcome instead of silently returning None on every path, so a caller can
-detect a guarded-mode GEMINI.md injection failure instead of the assessment
-silently running unguarded.
+"""DockerService.inject_workspace_files() must report its outcome instead
+of silently returning None on every path, so a caller can detect that
+instructions.md/solution.py failed to write.
+
+Story 9.7: guarded-mode's GEMINI.md/settings.json injection moved out of
+this function entirely (now bind-mounted at container-creation time by
+create_container() instead — see tests/test_guarded_mode_context_file_enforcement.py).
+This file now only covers instructions.md/solution.py, this function's
+original Story 6.1 scope.
 
 The module-level `_run()` helper (subprocess wrapper) is monkeypatched so no
 real Docker daemon is touched.
@@ -19,45 +24,14 @@ def _no_sleep(monkeypatch):
     monkeypatch.setattr("time.sleep", lambda *a, **k: None)
 
 
-def test_guarded_mode_success_returns_enforced_true(monkeypatch):
+def test_success_returns_injected_true(monkeypatch):
     monkeypatch.setattr(docker_service_module, "_run", lambda *a, **k: None)
 
     result = DockerService.inject_workspace_files(
         container_id="container-x", title="T", description="D",
-        criteria="C", starter_code="code", ai_assistance_mode="guarded")
+        criteria="C", starter_code="code")
 
-    assert result == {"injected": True, "guarded_mode_enforced": True}
-
-
-def test_guarded_mode_gemini_md_failure_returns_enforced_false(monkeypatch):
-    def fake_run(args, *a, **k):
-        if "GEMINI.md" in " ".join(args):
-            raise RuntimeError("docker cp failed for GEMINI.md")
-        return None
-    monkeypatch.setattr(docker_service_module, "_run", fake_run)
-
-    result = DockerService.inject_workspace_files(
-        container_id="container-x", title="T", description="D",
-        criteria="C", starter_code="code", ai_assistance_mode="guarded")
-
-    # Base files still got copied (instructions.md/solution.py) — only the
-    # inner GEMINI.md try/except failed, so injected stays True.
-    assert result == {"injected": True, "guarded_mode_enforced": False}
-
-
-def test_unguarded_mode_returns_enforced_true_trivially(monkeypatch):
-    calls = []
-    def fake_run(args, *a, **k):
-        calls.append(args)
-        return None
-    monkeypatch.setattr(docker_service_module, "_run", fake_run)
-
-    result = DockerService.inject_workspace_files(
-        container_id="container-x", title="T", description="D",
-        criteria="C", starter_code="code", ai_assistance_mode="unguarded")
-
-    assert result == {"injected": True, "guarded_mode_enforced": True}
-    assert not any("GEMINI.md" in " ".join(c) for c in calls)
+    assert result == {"injected": True}
 
 
 def test_total_injection_failure_returns_injected_false(monkeypatch):
@@ -67,6 +41,6 @@ def test_total_injection_failure_returns_injected_false(monkeypatch):
 
     result = DockerService.inject_workspace_files(
         container_id="container-x", title="T", description="D",
-        criteria="C", starter_code="code", ai_assistance_mode="guarded")
+        criteria="C", starter_code="code")
 
-    assert result == {"injected": False, "guarded_mode_enforced": False}
+    assert result == {"injected": False}

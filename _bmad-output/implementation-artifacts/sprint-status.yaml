@@ -35,7 +35,7 @@
 # - Dev moves story to 'review', then runs code-review (fresh context, different LLM recommended)
 
 generated: "2026-07-02"
-last_updated: "2026-07-06"  # updated: Stories 9-1, 9-2, 9-4, and 9-5 all implemented, reviewed, and marked done (125/125 suite green). Epic 9 remaining: 9-6 (manual QA, needs Docker) not started.
+last_updated: "2026-07-06"  # updated: Stories 9-1, 9-2, 9-4, 9-5, 9-7 all done (132/132 suite green). 9-7's code review found and fixed a critical directory-mount gap same-day, and surfaced an unfixable HOME-env-var bypass accepted as a documented residual gap. 9-6 still backlog (manual QA, needs Docker; now also covers live-verifying 9-7's bind mount).
 project: coding_platforms
 project_key: NOKEY
 tracking_system: file-system
@@ -420,5 +420,41 @@ development_status:
   # attached terminal doesn't reliably drive Gemini CLI's ink-based UI.
   # Action: generate a candidate link, open the code-server terminal in a
   # real browser, type `gemini`, confirm no auth-method picker appears.
+  # EXPANDED 2026-07-06 to also cover Story 9-7's live verification (no
+  # Docker was available when 9-7 was implemented): in a guarded-mode
+  # candidate link, confirm `rm ~/.gemini/GEMINI.md` / editing it fails,
+  # and confirm `cd /tmp && gemini` still enforces the restriction.
+
+  9-7-enforce-guarded-mode-immutable-context-file: done
+  # SUPERSEDES the Story 6.5 code review's accepted honor-system decision
+  # (2026-07-03) - user decided assessment integrity requires real
+  # enforcement. Implemented 2026-07-06: GEMINI.md/settings.json move from
+  # a post-start `docker cp` into /workspace (chmod 777, world-writable,
+  # cwd-dependent) to a READ-ONLY bind mount established at container-
+  # creation time (`docker run -v`), targeting Gemini CLI's GLOBAL context
+  # path (~/.gemini, confirmed via Gemini CLI's own docs to always load
+  # regardless of cwd) - immune to in-container root since the container
+  # is never --privileged/no extra capabilities.
+  # Code review 2026-07-06 (3-layer, extra scrutiny given security
+  # sensitivity): found a critical gap - the original file-level mount
+  # left ~/.gemini itself candidate-writable, letting a parent-directory
+  # rename evict both mounts untouched. Fixed same-day: mount now targets
+  # the WHOLE ~/.gemini directory (one -v flag) instead of two files -
+  # the mount point itself is now the protected boundary. Also fixed a
+  # cleanup prefix-boundary bug and bumped a log level. A SECOND, distinct
+  # bypass was found and could NOT be closed by any mount fix: Gemini CLI
+  # honors the $HOME env var, fully candidate-controlled via their shell -
+  # accepted as a documented residual gap per user decision (same tier as
+  # the already-accepted "external AI tool" bypass); real fix needs
+  # network-level API validation, a future story. AC4 wording revised to
+  # state precisely what a bind mount can/cannot guarantee.
+  # create_container() now returns (container_id, port, guarded_mode_enforced);
+  # inject_workspace_files() simplified back to instructions.md/solution.py
+  # only; cleanup_container() removes the host-side directory via
+  # `docker inspect` metadata, no separate tracking needed. 132/132 full
+  # suite green. Residual gap: no Docker in this sandbox, so live
+  # verification (does the mount actually block deletion/rename in a real
+  # container, does Gemini CLI really load the global file) must happen
+  # when Story 9-6 is done - folded into that story's scope. Marked done.
 
   epic-9-retrospective: optional

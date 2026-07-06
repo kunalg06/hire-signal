@@ -51,7 +51,7 @@ def generate_link(assignment_id):
     # guarded_mode_enforced stays True only because there's nothing to
     # contradict (no container means no assessment can start at all; this
     # is not the "silently ran unguarded" case Story 9.3 is about).
-    injection_result = {'injected': False, 'guarded_mode_enforced': True}
+    guarded_mode_enforced = True
 
     for port_attempt in range(Config.DOCKER_PORT_RANGE_START, Config.DOCKER_PORT_RANGE_START + max_retries):
         if retry_count >= max_retries:
@@ -59,18 +59,18 @@ def generate_link(assignment_id):
             break
 
         try:
-            container_id, port = DockerService.create_container(assignment_id, port_attempt)
+            container_id, port, guarded_mode_enforced = DockerService.create_container(
+                assignment_id, port_attempt, ai_assistance_mode=ai_assistance_mode)
 
             if container_id:
                 logger.info("Container started successfully: %s on port %s", container_id[:12], port)
                 # Inject starter code + instructions into /workspace
-                injection_result = DockerService.inject_workspace_files(
+                DockerService.inject_workspace_files(
                     container_id=container_id,
                     title=title,
                     description=description,
                     criteria=evaluation_criteria or '',
                     starter_code=starter_code or '',
-                    ai_assistance_mode=ai_assistance_mode,
                 )
                 break
             retry_count += 1
@@ -90,7 +90,7 @@ def generate_link(assignment_id):
     db_service.create_session_link(
         link_id, assignment_id, container_id, port, expires_at,
         ai_assistance_mode=ai_assistance_mode,
-        guarded_mode_enforced=injection_result['guarded_mode_enforced'],
+        guarded_mode_enforced=guarded_mode_enforced,
     )
 
     return jsonify({
