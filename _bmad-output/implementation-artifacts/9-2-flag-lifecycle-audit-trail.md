@@ -1,6 +1,6 @@
 # Story 9.2: Flag Lifecycle Audit Trail
 
-Status: review
+Status: done
 
 <!-- Note: Validation is optional. Run validate-create-story for quality check before dev-story. -->
 
@@ -13,7 +13,7 @@ so that re-flagging a submission never silently loses the history of why it was 
 ## Acceptance Criteria
 
 1. New `flag_events` table exists, created idempotently via `CREATE TABLE IF NOT EXISTS` in `init_db()`, structurally mirroring `score_overrides` (append-only, never UPDATE/DELETE anywhere in the codebase).
-2. `DatabaseService.log_flag_event(event_id, submission_id, reason, flagged_by)` inserts exactly one row per call — no UPDATE, no DELETE, ever, on this table.
+2. `DatabaseService.flag_submission(submission_id, reason, flagged_by, event_id)` unconditionally inserts exactly one row into `flag_events` per successful flag (auto-generating `event_id` if the caller omits it) — no UPDATE, no DELETE, ever, on this table. (Revised 2026-07-06 finalization review: the standalone `log_flag_event()` method named in the original wording was folded directly into `flag_submission()` during the 2026-07-04 Post-Review Follow-Up, and the audit write was made unconditional — not merely caller-opt-in — during the finalization review, closing a gap where a caller omitting `event_id` produced zero audit rows.)
 3. `POST /api/submissions/<id>/flag` logs one `flag_events` row on every successful flag, in addition to its existing behavior (unchanged).
 4. Flagging the same submission twice (e.g. two different reasons) produces TWO rows in `flag_events` — proven by a test — not one overwritten row.
 5. `submissions.flag_reason` / `flag_by` / `flagged_at` (the "current state" columns) still reflect only the LATEST flag after re-flagging — this existing last-value-wins behavior is UNCHANGED and must not be "fixed," since it mirrors the established `hire_evaluations` pattern (current-state columns + a separate append-only history table, `score_overrides`) already used for overrides.
@@ -33,6 +33,16 @@ so that re-flagging a submission never silently loses the history of why it was 
 - [x] Add test: `submissions.flag_reason`/`flag_by`/`flagged_at` reflect only the latest flag after two flag calls — proves AC5's "unchanged" requirement explicitly, not just by omission
 - [x] Add test: a single successful flag call produces exactly one `flag_events` row (baseline correctness, not just the re-flag case)
 - [x] Run the full test suite and confirm no regressions
+
+### Review Findings
+
+- [x] [Review][Patch] Audit-log write is caller-opt-in, not method-enforced: `flag_submission(..., event_id=None)` only inserts into `flag_events` `if updated and event_id:` — any caller that omits `event_id` gets a fully successful flag with ZERO audit rows, silently. Confirmed as a REAL, currently-executing gap (not hypothetical): `tests/test_candidates_endpoint.py:286` calls `db.flag_submission(flagged_sub, "suspected plagiarism", flagged_by="employer-1")` with no `event_id` today. This is precisely the failure mode the story's own Post-Review hardening claims to have structurally eliminated — it only holds for the one route that remembers to pass the id (all 3 review layers — Blind Hunter, Edge Case Hunter, Acceptance Auditor — independently converged on this). Fixed: `flag_submission()` now generates `event_id` internally (`event_id or IDGenerator.generate_uuid()`) so the INSERT always fires whenever `updated` is true, regardless of what the caller passes. New test `test_flag_submission_audits_even_when_caller_omits_event_id` proves it. [app/services/database_service.py:118]
+- [x] [Review][Patch] Same opt-in gap in `override_hire_evaluation(..., override_id=None)` — no current caller omits it, but nothing in the method prevented it. Additionally, `ai_recommendation=None` was incompatible with `score_overrides.ai_recommendation TEXT NOT NULL`: a caller passing `override_id` without `ai_recommendation` would have hit an uncaught `sqlite3.IntegrityError` instead of the route's intended graceful error. Fixed: `ai_recommendation` is now a required (no-default) parameter and `override_id` auto-generates internally the same way as the flag_submission fix above. [app/services/database_service.py:141]
+- [x] [Review][Patch] No test exercised `override_hire_evaluation()`'s audit-log insert at the DB-row level — only route-level 200-status assertions existed for the override flow; nothing confirmed `score_overrides` actually receives a row post-9.2's refactor of this write path. Fixed: added `test_override_writes_a_score_overrides_row` to `tests/test_flag_events_audit_trail.py`. [tests/test_flag_events_audit_trail.py]
+- [x] [Review][Patch] AC2's literal wording still named `DatabaseService.log_flag_event(event_id, submission_id, reason, flagged_by)` as a standalone method, but the Post-Review Follow-Up (2026-07-04, documented lower in this same file) folded its INSERT directly into `flag_submission()` instead. Fixed: AC2's text updated to describe the actual shipped interface. [this file, Acceptance Criteria section]
+- [x] [Review][Defer] Uncaught `sqlite3.IntegrityError` if a caller ever reuses a duplicate `event_id`/`override_id` (both are `TEXT PRIMARY KEY`) — no rollback/retry handling, surfaces as an unhandled 500 rather than the route's graceful error response. Extremely low likelihood given UUID generation; matches the rest of the codebase's lack of DB-exception handling elsewhere in this file. [app/services/database_service.py:118] — deferred, pre-existing convention, extremely low practical likelihood
+- [x] [Review][Defer] `hire_row[1]` is a brittle positional index for `ai_recommendation` in `override_submission()` — pre-existing pattern from Story 4.4, not introduced by this story. [app/routes/submissions.py:422] — deferred, pre-existing
+- [x] [Review][Defer] No index on `flag_events.submission_id` — every audit-trail read does a full-table scan; benign at current scale and matches the existing convention (no other audit/history table in this schema is indexed either). [app/models/database.py:174] — deferred, benign-at-scale, convention-matching
 
 ## Dev Notes
 
@@ -366,6 +376,16 @@ Code review of this story found 3 issues, all fixed same-day:
 1. **Non-atomic write pair**: `flag_submission()` and `override_hire_evaluation()` originally did their state-mutating UPDATE and their audit-log INSERT as two separate connections/commits (mirroring `override_submission()`'s pre-existing pattern, per the story's own Dev Notes instruction) — a crash or transient DB error between the two could leave a flag/override applied with zero audit-trail row, the exact failure mode this story exists to prevent. Fixed by folding both writes into a single transaction: `flag_submission()` now accepts an optional `event_id` and `override_hire_evaluation()` now accepts optional `ai_recommendation`/`override_id`, each doing its UPDATE + INSERT on the same cursor before one `conn.commit()`. The standalone `log_score_override()`/`log_flag_event()` methods were removed (their logic folded in, not left as dead code) and both routes in `app/routes/submissions.py` updated accordingly. Fixed for BOTH the flag and override paths for consistency, not just the one this story added.
 2. **Test ordering fragility**: `test_reflagging_appends_a_second_event_row_not_overwrite` relied on `ORDER BY flagged_at`, but SQLite's `CURRENT_TIMESTAMP` has only 1-second resolution — two flags in the same test can land in the same second. Fixed by ordering on `rowid` instead (monotonically increasing in insertion order for this non-`WITHOUT ROWID` table), a deterministic tie-breaker.
 3. **CLAUDE.md schema docs were stale**: the "DB Schema" table count/list and the Architecture Constraints' append-only rules named `score_overrides` but not the new `flag_events` table, even though its own docstring asserts the identical invariant. Updated `CLAUDE.md`: table count 10→11, added the `flag_events` row, added its append-only constraint line.
+
+### Finalization Code Review (2026-07-06)
+
+3-layer review (Blind Hunter, Edge Case Hunter, Acceptance Auditor) found the "unconditional" audit-trail guarantee from the 2026-07-04 follow-up above was actually still caller-opt-in: `flag_submission(..., event_id=None)` and `override_hire_evaluation(..., ai_recommendation=None, override_id=None)` only wrote the audit row `if updated and event_id`/`override_id`, so any caller that forgot to pass the id got a fully successful flag/override with ZERO audit rows — and `tests/test_candidates_endpoint.py:286` was already doing exactly that. All 3 review layers independently converged on this same finding. Fixed:
+1. `flag_submission()` now generates `event_id` internally (`event_id or IDGenerator.generate_uuid()`) and always inserts into `flag_events` when the update succeeds — no more silent skip.
+2. `override_hire_evaluation()` — same fix for `override_id`, plus `ai_recommendation` changed from an optional `None` default to a required parameter (it's `NOT NULL` in `score_overrides` and has no safe default; leaving it optional risked an uncaught `sqlite3.IntegrityError` on any future caller that omitted it).
+3. Added `test_flag_submission_audits_even_when_caller_omits_event_id` and `test_override_writes_a_score_overrides_row` to `tests/test_flag_events_audit_trail.py` — the override-audit path had zero DB-row-level test coverage before this pass.
+4. Updated AC2's wording (it still named the removed standalone `log_flag_event()` method).
+
+3 additional findings deferred (uncaught `IntegrityError` on duplicate id reuse, a pre-existing `hire_row[1]` positional-index brittleness from Story 4.4, no index on `flag_events.submission_id`) — logged to `deferred-work.md`. Full suite: 118/118 passing (116 before this pass + 2 new).
 
 Full suite: 104/104 passing after all three fixes.
 

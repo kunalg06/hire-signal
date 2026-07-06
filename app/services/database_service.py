@@ -3,6 +3,7 @@ import json
 from datetime import datetime
 from app.models.database import Database
 from app.config import Config
+from app.utils.helpers import IDGenerator
 
 class DatabaseService:
     """Service for database operations"""
@@ -116,11 +117,13 @@ class DatabaseService:
             return cursor.fetchone()
 
     def flag_submission(self, submission_id, reason, flagged_by=None, event_id=None):
-        """Flag a submission for manual review. When event_id is provided,
-        also appends one row to the append-only flag_events audit log in
-        the SAME transaction as the flag update — so a crash or transient
-        error between the two writes can never leave a submission flagged
-        with no corresponding audit-trail entry (Story 9.2 hardening)."""
+        """Flag a submission for manual review. Always appends one row to the
+        append-only flag_events audit log in the SAME transaction as the flag
+        update (auto-generating event_id if the caller doesn't supply one) —
+        so a crash or transient error between the two writes, OR simply a
+        caller that forgets to pass event_id, can never leave a submission
+        flagged with no corresponding audit-trail entry (Story 9.2 hardening,
+        made unconditional per finalization code review 2026-07-06)."""
         with self.db.get_connection() as conn:
             cursor = conn.cursor()
             cursor.execute('''
@@ -129,23 +132,27 @@ class DatabaseService:
                 WHERE submission_id = ?
             ''', (reason, flagged_by, datetime.now().isoformat(), submission_id))
             updated = cursor.rowcount > 0
-            if updated and event_id:
+            if updated:
                 cursor.execute('''
                     INSERT INTO flag_events (id, submission_id, reason, flagged_by)
                     VALUES (?, ?, ?, ?)
-                ''', (event_id, submission_id, reason, flagged_by))
+                ''', (event_id or IDGenerator.generate_uuid(), submission_id, reason, flagged_by))
             conn.commit()
             return updated
 
     def override_hire_evaluation(self, submission_id, override_recommendation, override_rationale,
-                                 ai_recommendation=None, override_id=None):
+                                 ai_recommendation, override_id=None):
         """Apply human override — original AI composite_score and
-        recommendation are never changed. When override_id is provided
-        (with ai_recommendation), also appends one row to the append-only
-        score_overrides audit log in the SAME transaction as the override
-        update — so a crash or transient error between the two writes can
-        never leave an override applied with no corresponding audit-trail
-        entry (Story 9.2 hardening)."""
+        recommendation are never changed. Always appends one row to the
+        append-only score_overrides audit log in the SAME transaction as the
+        override update (auto-generating override_id if the caller doesn't
+        supply one) — so a crash or transient error between the two writes,
+        OR simply a caller that forgets to pass override_id, can never leave
+        an override applied with no corresponding audit-trail entry (Story
+        9.2 hardening, made unconditional per finalization code review
+        2026-07-06). ai_recommendation is required (score_overrides.ai_recommendation
+        is NOT NULL) — there is no safe default for what the original AI
+        recommendation was."""
         with self.db.get_connection() as conn:
             cursor = conn.cursor()
             cursor.execute('''
@@ -156,12 +163,12 @@ class DatabaseService:
                 WHERE submission_id = ?
             ''', (override_recommendation, override_rationale, submission_id))
             updated = cursor.rowcount > 0
-            if updated and override_id:
+            if updated:
                 cursor.execute('''
                     INSERT INTO score_overrides
                         (id, submission_id, ai_recommendation, human_recommendation, override_rationale)
                     VALUES (?, ?, ?, ?, ?)
-                ''', (override_id, submission_id, ai_recommendation,
+                ''', (override_id or IDGenerator.generate_uuid(), submission_id, ai_recommendation,
                       override_recommendation, override_rationale))
             conn.commit()
             return updated

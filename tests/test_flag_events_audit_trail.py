@@ -42,6 +42,14 @@ def make_submission(db_service):
     return submission_id
 
 
+def make_evaluated_submission(db_service, composite_score=70, recommendation="hire"):
+    submission_id = make_submission(db_service)
+    db_service.create_hire_evaluation(
+        IDGenerator.generate_uuid(), submission_id, composite_score,
+        recommendation, "{}", "narrative")
+    return submission_id
+
+
 def _flag_event_rows(db_service, submission_id):
     # ORDER BY rowid, not flagged_at: SQLite's CURRENT_TIMESTAMP only has
     # 1-second resolution, so two flags in the same test can land in the
@@ -98,3 +106,37 @@ def test_reflagging_still_updates_current_state_to_latest(client, db):
     assert get_body["flag_by"] == "employer-2"
     # Only 2 flag_events rows exist despite the current-state column showing one value
     assert len(_flag_event_rows(db, submission_id)) == 2
+
+
+# ── Audit write is now unconditional, not caller-opt-in (finalization review 2026-07-06) ──
+
+def test_flag_submission_audits_even_when_caller_omits_event_id(client, db):
+    """DatabaseService.flag_submission() must never silently skip the
+    flag_events insert, regardless of whether the caller remembers to pass
+    event_id — this is the exact gap the finalization code review found
+    tests/test_candidates_endpoint.py already exercising (a real, currently
+    executing call site with no event_id)."""
+    submission_id = make_submission(db)
+    updated = db.flag_submission(submission_id, "no event_id passed", flagged_by="employer-1")
+    assert updated is True
+    assert len(_flag_event_rows(db, submission_id)) == 1
+
+
+def test_override_writes_a_score_overrides_row(client, db):
+    """No prior test asserted score_overrides actually receives a row —
+    only route-level 200-status checks existed for the override flow."""
+    submission_id = make_evaluated_submission(db, composite_score=60, recommendation="select")
+    resp = client.post(f"/api/submissions/{submission_id}/override",
+                       json={"override_recommendation": "hire",
+                             "override_rationale": "strong system design in interview"})
+    assert resp.status_code == 200
+
+    with db.db.get_connection() as conn:
+        cursor = conn.cursor()
+        cursor.execute(
+            "SELECT ai_recommendation, human_recommendation, override_rationale "
+            "FROM score_overrides WHERE submission_id = ?",
+            (submission_id,))
+        rows = cursor.fetchall()
+    assert len(rows) == 1
+    assert rows[0] == ("select", "hire", "strong system design in interview")

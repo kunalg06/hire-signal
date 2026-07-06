@@ -436,12 +436,28 @@ def student_dashboard(link_id):
         return `${{h}}:${{String(m).padStart(2,'0')}}:${{String(s).padStart(2,'0')}}`;
     }}
 
+    let _expiryHandled = false;
+    // Declared here (not near submitAssessment()) so it's initialized before
+    // tickTimer()'s first synchronous call below — a `let` declared further
+    // down the script would still be in the temporal dead zone at that point.
+    let _submitInFlight = false;
+
     function tickTimer() {{
         const t = formatRemaining();
         const lt = document.getElementById('landingTimer');
         const at = document.getElementById('assessTimer');
         if (lt) lt.textContent = t;
         if (at) at.textContent = t;
+
+        if (t === 'Expired' && !_expiryHandled) {{
+            _expiryHandled = true;
+            closeNudgeModal();
+            // Don't yank the submit modal away while a request is actually
+            // in flight — submitAssessment()'s own finally block will close
+            // it (or its try block already does on response) once settled.
+            if (!_submitInFlight) closeSubmitModal();
+            showToast('Your session time has expired. You can still try to submit, or contact your employer for a new link.', 'error', 8000);
+        }}
     }}
     tickTimer();
     setInterval(tickTimer, 1000);
@@ -528,6 +544,7 @@ def student_dashboard(link_id):
         confirmBtn.disabled = true;
         confirmBtn.textContent = 'Submitting...';
         submitBtn.disabled = true;
+        _submitInFlight = true;
 
         try {{
             const res  = await fetch(`/api/submit-with-files/${{LINK_ID}}`, {{
@@ -563,6 +580,7 @@ def student_dashboard(link_id):
             confirmBtn.disabled = false;
             confirmBtn.textContent = 'Yes, Submit';
             submitBtn.disabled = false;
+            _submitInFlight = false;
         }}
     }}
 

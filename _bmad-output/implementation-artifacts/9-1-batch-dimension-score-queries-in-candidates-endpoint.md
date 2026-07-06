@@ -1,6 +1,6 @@
 # Story 9.1: Batch Dimension-Score Queries in Candidates Endpoint
 
-Status: review
+Status: done
 
 <!-- Note: Validation is optional. Run validate-create-story for quality check before dev-story. -->
 
@@ -35,6 +35,12 @@ so that the results page stays fast as cohort size grows, with zero change to ra
 - [x] Add a test proving exactly one call to `get_dimension_scores_for_submissions` per request regardless of candidate count (AC: 1) — spy on the method, assert `len(calls) == 1`
 - [x] Add a test with ≥3 evaluated candidates carrying distinct per-dimension scores, asserting each candidate's `dimensions` dict matches only its own scores (AC: 3)
 - [x] Run the full existing `tests/test_candidates_endpoint.py` file unmodified and confirm 100% green (AC: 2)
+
+### Review Findings
+
+- [x] [Review][Defer] Unbounded `IN (...)` placeholder count in `get_dimension_scores_for_submissions` — no chunking/batching of the parameter list, so a single challenge/assignment whose candidate count exceeds SQLite's host-parameter ceiling (verified empirically at 32766 in this environment's bundled SQLite 3.50.4) would raise an uncaught `sqlite3.OperationalError` and 500 the entire `/candidates` endpoint, a failure mode the old N+1 code could never hit (confirmed by both Blind Hunter and Edge Case Hunter review layers). Not exercised by any test (both test files cap out at 3 candidates). Far outside this story's tested/intended scale (AC1 only specifies correctness at 0/1/50 candidates) — not blocking finalization. [app/services/database_service.py:280] — deferred, pre-existing risk class introduced at a scale far beyond current design intent
+- [x] [Review][Defer] `is_flagged` is present on the `challenges.py` candidates payload but the `assignments.py` sibling endpoint (batched in this same story) was not given the equivalent field, despite the new `test_assignments_candidates_endpoint.py` docstring describing the two endpoints as being kept in lockstep (Blind Hunter finding). The `is_flagged` field itself predates Story 9.1 (added by a separate party-mode triage item scoped only to `challenges.py`) — this is a pre-existing parity gap between the two endpoints, not something this story's batching change introduced or was scoped to fix. [app/routes/assignments.py:94] — deferred, pre-existing scope gap unrelated to this story's batching change
+- [x] [Review][Defer] If `get_candidates_for_challenge`/`get_candidates_for_assignment` ever returned more than one row for the same `submission_id` (e.g. a re-evaluated submission with a stale prior `hire_evaluations` row, since `hire_evaluations.submission_id` has no `UNIQUE` constraint), `submission_ids = [row[0] for row in rows]` would pass the duplicate straight into the `IN (...)` list unfiltered, needlessly consuming parameter budget (Edge Case Hunter finding). Result would still be correct (dict keys collapse) — this is a contributing factor to the placeholder-ceiling finding above, not a correctness bug on its own, and depends on a scenario not currently reachable via the app's actual code paths. [app/services/database_service.py:280] — deferred, contingent on an unenforced schema invariant not observed in practice
 
 ## Dev Notes
 
