@@ -1,5 +1,9 @@
 # Deferred Work
 
+## Deferred from: code review of 9-5-assignment-link-keyed-preview-fidelity (2026-07-06)
+
+- **`criteria` argument is semantically inconsistent between the two preview callers** (`app/routes/student.py`, `student_preview()`'s `criteria` computation): the challenge-keyed path passes `str(evaluation_rubric_json)` — a no-op pass-through since sqlite TEXT columns are already Python `str`, so a real multi-key rubric (as `EvaluationService.generate_challenge()` would plausibly produce) renders raw JSON syntax (`{`, `"`, `[`) as prose in the "Evaluation Criteria" box — while the assignment-keyed path passes clean plain-text `evaluation_criteria`. Pre-existing behavior from Story 6.4, correctly carried over unchanged by Story 9.5 (which required the challenge route's rendered output stay byte-for-byte unchanged). Fix if it becomes a real UX complaint: normalize rubric-JSON-to-readable-text formatting before passing it into the shared preview helper.
+
 ## Deferred from: code review of 9-4-session-expiry-during-open-modal (2026-07-06)
 
 - **`EXPIRES_AT` invalid/unparseable would silently prevent expiry detection forever** (`app/routes/student.py:431`): if the server-rendered `EXPIRES_AT` were ever malformed, `formatRemaining()` would return `'NaN:NaN:NaN'` forever, never the literal `'Expired'` string Story 9.4's guard checks for — the new auto-close/toast logic would simply never fire. Not currently reachable: `expires_at` is always server-generated (`DateTimeHelper.get_future_timestamp(hours=24)`, `app/routes/links.py:89`), never user input.

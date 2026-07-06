@@ -35,7 +35,7 @@
 # - Dev moves story to 'review', then runs code-review (fresh context, different LLM recommended)
 
 generated: "2026-07-02"
-last_updated: "2026-07-06"  # updated: Story 9-1 (0 patch, 3 defer), 9-2 (4 patch, 3 defer), and 9-4 (1 patch, 3 defer) code reviews complete, all marked done (118/118 suite green)
+last_updated: "2026-07-06"  # updated: Stories 9-1, 9-2, 9-4, and 9-5 all implemented, reviewed, and marked done (125/125 suite green). Epic 9 remaining: 9-6 (manual QA, needs Docker) not started.
 project: coding_platforms
 project_key: NOKEY
 tracking_system: file-system
@@ -395,17 +395,22 @@ development_status:
   # established verification convention from prior JS-only stories.
   # Marked done.
 
-  9-5-assignment-link-keyed-preview-fidelity: backlog
-  # BLOCKED on a product decision, not a code readiness gap. student_preview()
-  # reads the challenges catalog template, not the live assignments row a
-  # candidate actually sees post-generation-edits. Resolved via a prior
-  # party-mode panel (2026-07-03, unanimous): no code forced then since no
-  # frontend trigger existed yet; AC3 was reworded to describe template-preview
-  # accurately. Before this story can start, someone must decide WHERE the
-  # "preview as student" trigger lives in the UI (assignment-detail page vs.
-  # catalog page) - that decision determines whether challenge_id uniquely
-  # resolves to one assignment (it does not; one challenge can spawn many
-  # assignments) and whether new disambiguation logic is needed.
+  9-5-assignment-link-keyed-preview-fidelity: done
+  # Implemented 2026-07-06: added GET /student/preview/assignment/<id> in
+  # app/routes/student.py, reading the LIVE assignments row (via the existing
+  # get_assignment()) instead of the challenges catalog template - fixes the
+  # drift bug directly, no challenge_id disambiguation needed since the new
+  # route is keyed on assignment_id. Extracted _render_student_preview_html()
+  # so the ~230-line preview template isn't tripled; the existing challenge-
+  # keyed route's behavior is proven byte-for-byte unchanged by 3 pinning
+  # tests written before the refactor and passing unmodified after it. Added
+  # a "Preview as Student" button to each card in the "Saved Assignments"
+  # list (templates/frontend.html Tab 3), per the UI-placement decision.
+  # Code review 2026-07-06 (3-layer): 1 patch (asymmetric test coverage for
+  # the criteria-fallback path across the two routes, fixed with a mirrored
+  # test), 1 defer (pre-existing rubric-JSON-vs-plain-text formatting
+  # inconsistency from Story 6.4, logged to deferred-work.md). 125/125 full
+  # suite green, live-verified via a real server. Marked done.
 
   9-6-verify-gemini-cli-auth-picker-manually: backlog
   # Not a code story - a one-time manual QA checklist item. Story 8.1's

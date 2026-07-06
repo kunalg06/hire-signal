@@ -766,31 +766,21 @@ def student_dashboard(link_id):
     return html, 200, {'Content-Type': 'text/html; charset=utf-8'}
 
 
-@student_bp.route('/student/preview/<challenge_id>')
-def student_preview(challenge_id):
-    # Previews the challenge TEMPLATE (challenges table), not a specific
-    # generated assignment. If an employer edits an assignment after
-    # generating it from this challenge, this preview will not reflect
-    # that drift — see Story 6.4 Review Findings for the follow-up story.
-    row = db_service.get_challenge(challenge_id)
-    if not row:
-        return jsonify({"detail": "Challenge not found"}), 404
-
-    _, title, domain, description, evaluation_rubric_json, starter_code, \
-        challenge_type, skill_area, difficulty, ai_assistance_mode, \
-        is_published, created_at = row
-
+def _render_student_preview_html(title, description, criteria, starter_code):
+    """Shared preview-page HTML for both the challenge-keyed and
+    assignment-keyed preview routes (Story 9.5) — identical landing +
+    assessment screens, sourced from whichever caller's field values.
+    """
     safe_title = html_module.escape(title or 'Untitled Challenge')
     safe_description = html_module.escape(description or '')
     safe_criteria = html_module.escape(
-        str(evaluation_rubric_json) if evaluation_rubric_json
-        else 'Evaluation criteria set by employer.'
+        criteria or 'Evaluation criteria set by employer.'
     )
     safe_code = html_module.escape(
         starter_code or '# No starter code provided for this challenge.'
     )
 
-    html = f"""<!DOCTYPE html>
+    return f"""<!DOCTYPE html>
 <html lang="en">
 <head>
     <meta charset="UTF-8">
@@ -1020,4 +1010,35 @@ def student_preview(challenge_id):
 </body>
 </html>"""
 
+
+@student_bp.route('/student/preview/<challenge_id>')
+def student_preview(challenge_id):
+    # Previews the challenge TEMPLATE (challenges table), not a specific
+    # generated assignment. If an employer edits an assignment after
+    # generating it from this challenge, this preview will not reflect
+    # that drift — see the assignment-keyed preview route below for that.
+    row = db_service.get_challenge(challenge_id)
+    if not row:
+        return jsonify({"detail": "Challenge not found"}), 404
+
+    _, title, domain, description, evaluation_rubric_json, starter_code, \
+        challenge_type, skill_area, difficulty, ai_assistance_mode, \
+        is_published, created_at = row
+
+    criteria = str(evaluation_rubric_json) if evaluation_rubric_json else None
+    html = _render_student_preview_html(title, description, criteria, starter_code)
+    return html, 200, {'Content-Type': 'text/html; charset=utf-8'}
+
+
+@student_bp.route('/student/preview/assignment/<assignment_id>')
+def student_preview_assignment(assignment_id):
+    # Previews the LIVE assignments row a candidate actually sees, fixing
+    # the drift the challenge-keyed preview above can't reflect once an
+    # employer edits an assignment post-generation (Story 9.5).
+    row = db_service.get_assignment(assignment_id)
+    if not row:
+        return jsonify({"detail": "Assignment not found"}), 404
+
+    html = _render_student_preview_html(
+        title=row[1], description=row[2], criteria=row[4], starter_code=row[3])
     return html, 200, {'Content-Type': 'text/html; charset=utf-8'}

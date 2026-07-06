@@ -990,7 +990,8 @@ async function loadAssignments() {
         document.getElementById('assignmentsList').innerHTML = list.map(a => `
             <div class="challenge-card" style="margin-bottom:8px;" onclick="document.getElementById('assignId').value='${a.id}'">
                 <div style="font-weight:600; margin-bottom:4px;">${escHtml(a.title)}</div>
-                <div style="font-size:0.8em; color:#aaa;">ID: ${a.id}</div>
+                <div style="font-size:0.8em; color:#aaa; margin-bottom:8px;">ID: ${a.id}</div>
+                <button class="btn-sm btn-outline" onclick="event.stopPropagation(); window.open('/student/preview/assignment/${a.id}', '_blank')">Preview as Student</button>
             </div>
         `).join('');
     } catch (err) {
