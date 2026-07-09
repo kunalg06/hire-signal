@@ -183,7 +183,9 @@ Fixed: `mount_args` now bind-mounts `GEMINI.md` and `settings.json` individually
 
 **No Docker image rebuild needed** — this is a `docker run` flag change in `docker_service.py`, not a `Dockerfile.codeserver` change. Any already-running guarded-mode container still has the old broken mount baked in and must be recreated (stop/remove it, restart the Flask backend so the code change loads, regenerate the candidate link) — it cannot be fixed in place.
 
-Uncommitted, in the working tree pending user review (same as everything else below).
+Verified live against a real container (not just pytest): `docker inspect` confirmed the two file-level `:ro` mounts (no more directory-wide mount); `docker exec ... gemini -p "..."` ran with no EROFS crash; `projects.json`/`installation_id`/`history/`/`tmp/` all wrote successfully post-fix; `GEMINI.md`/`settings.json` still rejected a write attempt ("Read-only file system"); guarded mode still declined to output a full solution on direct request. Committed as `b3ae8c0` and pushed to `origin/main`.
+
+**Docker host cleanup (same session):** removed all 31 stopped/never-started `assignment_<uuid>_<hash>` containers left over from prior dev/testing sessions (`docker ps -a --filter "name=^assignment_"` + `docker rm -f`) — none were running, verified first. Scoped to hire-signal's own containers only; left other unrelated projects' stopped containers on the same machine untouched (`ai-coding-assessment-*`, `aiengineeringassessmentplatform-*`, `claude-assignment-*`, `docker-socket-proxy`, `code-server-builder-only`). Not a code change, nothing to commit for this part — just host hygiene. New `assignment_*` containers will of course reaccumulate as containers are created/exited during normal use; no automated cleanup job exists yet (`/api/system/cleanup-old`/`cleanup-all` endpoints exist for this — see API table — but aren't scheduled anywhere).
 
 ---
 
