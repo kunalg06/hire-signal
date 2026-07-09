@@ -44,12 +44,13 @@ def _fake_run_success(container_id="fake-container-id"):
 
 # ── create_container() guarded-mode bind mount ──────────────────────────────
 
-def test_guarded_mode_writes_real_context_files_and_mounts_the_whole_directory(monkeypatch):
-    """The mount targets the ~/.gemini DIRECTORY as a whole (not the two
-    files individually) — mounting only files would leave the directory
-    itself candidate-writable, letting a parent-directory rename
-    (`mv ~/.gemini ~/.gemini_old`) evict the mount entirely without ever
-    touching the mounted files. See story Review Findings, Bypass 1."""
+def test_guarded_mode_writes_real_context_files_and_mounts_them_individually(monkeypatch):
+    """The mount targets GEMINI.md and settings.json individually, NOT the
+    ~/.gemini directory as a whole — a directory-level mount blocks every
+    other file Gemini CLI writes there on launch (projects.json,
+    installation_id, checkpoint cleanup), crashing the CLI with EROFS.
+    File-level mounts leave those sibling writes working while still
+    protecting the two restriction files themselves."""
     fake_run, calls = _fake_run_success()
     monkeypatch.setattr(docker_service_module, "_run", fake_run)
 
@@ -62,25 +63,26 @@ def test_guarded_mode_writes_real_context_files_and_mounts_the_whole_directory(m
 
     run_args = next(a for a in calls if a[0] == "run")
     mount_flags = [a for i, a in enumerate(run_args) if run_args[i - 1] == "-v"]
-    assert len(mount_flags) == 1
+    assert len(mount_flags) == 2
 
     # Strip the known container-path+':ro' suffix from the END rather than
     # splitting on the first ':' — a Windows host path itself contains a
     # colon (e.g. "C:\...\gemini"), which naive front-splitting breaks.
-    (gemini_dir_mount,) = mount_flags
-    suffix = ":/home/coder/.gemini:ro"
-    assert gemini_dir_mount.endswith(suffix)
-    gemini_dir_host_path = gemini_dir_mount[: -len(suffix)]
+    gemini_md_mount = next(m for m in mount_flags if m.endswith(":/home/coder/.gemini/GEMINI.md:ro"))
+    settings_mount = next(m for m in mount_flags if m.endswith(":/home/coder/.gemini/settings.json:ro"))
 
-    # The mounted directory must contain REAL files with the correct
-    # content, not just a string passed to a mocked _run.
-    assert gemini_dir_host_path.startswith(Config.GUARDED_MODE_HOST_TMP_ROOT)
-    with open(os.path.join(gemini_dir_host_path, "GEMINI.md"), encoding="utf-8") as f:
+    gemini_md_host_path = gemini_md_mount[: -len(":/home/coder/.gemini/GEMINI.md:ro")]
+    settings_host_path = settings_mount[: -len(":/home/coder/.gemini/settings.json:ro")]
+
+    # The mounted files must be REAL files with the correct content, not
+    # just a string passed to a mocked _run.
+    assert gemini_md_host_path.startswith(Config.GUARDED_MODE_HOST_TMP_ROOT)
+    with open(gemini_md_host_path, encoding="utf-8") as f:
         gemini_content = f.read()
     assert "guarded mode" in gemini_content
     assert "Do NOT write or output a complete, working solution" in gemini_content
 
-    with open(os.path.join(gemini_dir_host_path, "settings.json"), encoding="utf-8") as f:
+    with open(settings_host_path, encoding="utf-8") as f:
         settings_content = json.loads(f.read())
     assert settings_content["model"]["name"] == Config.GEMINI_MODEL
     assert settings_content["security"]["auth"]["selectedType"] == "gemini-api-key"
@@ -157,12 +159,14 @@ def test_cleanup_container_removes_guarded_mode_host_directory(monkeypatch, tmp_
     gemini_dir = host_dir / "gemini"
     gemini_dir.mkdir(parents=True)
     (gemini_dir / "GEMINI.md").write_text("restricted", encoding="utf-8")
+    (gemini_dir / "settings.json").write_text("{}", encoding="utf-8")
 
-    # Mount source is the DIRECTORY (matching create_container()'s
-    # directory-level mount), not the individual GEMINI.md file.
+    # Mount sources are the individual FILES (matching create_container()'s
+    # file-level mounts), not the gemini/ directory as a whole.
     inspect_payload = json.dumps([{
         "Mounts": [
-            {"Type": "bind", "Source": str(gemini_dir), "Destination": "/home/coder/.gemini"},
+            {"Type": "bind", "Source": str(gemini_dir / "GEMINI.md"), "Destination": "/home/coder/.gemini/GEMINI.md"},
+            {"Type": "bind", "Source": str(gemini_dir / "settings.json"), "Destination": "/home/coder/.gemini/settings.json"},
         ]
     }])
 
@@ -195,7 +199,7 @@ def test_cleanup_container_does_not_sweep_sibling_directory_with_extending_name(
 
     inspect_payload = json.dumps([{
         "Mounts": [
-            {"Type": "bind", "Source": str(sibling_dir), "Destination": "/home/coder/.gemini"},
+            {"Type": "bind", "Source": str(sibling_dir / "GEMINI.md"), "Destination": "/home/coder/.gemini/GEMINI.md"},
         ]
     }])
 

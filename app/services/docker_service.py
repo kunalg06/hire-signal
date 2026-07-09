@@ -71,43 +71,49 @@ class DockerService:
         Spin up a student code-server container.
 
         Story 9.7: when ai_assistance_mode == 'guarded', the container is
-        started with a READ-ONLY bind mount over the ENTIRE Gemini CLI
-        global config directory (~/.gemini, containing GEMINI.md and
-        settings.json), established as part of the `docker run` command
-        itself — not copied in after the fact. This closes the
-        honor-system gaps accepted in Story 6.5:
+        started with READ-ONLY bind mounts over GEMINI.md and settings.json
+        inside the Gemini CLI global config directory (~/.gemini),
+        established as part of the `docker run` command itself — not
+        copied in after the fact. This closes the honor-system gaps
+        accepted in Story 6.5:
           - Gemini CLI always loads ~/.gemini/GEMINI.md regardless of the
             candidate's current working directory (unlike a workspace-local
             file), so `cd` elsewhere no longer skips the restriction.
-          - The mount targets the DIRECTORY, not just the two files inside
-            it — mounting only the files would leave the directory itself
-            plain and candidate-writable (it's created under `USER coder`
-            in the image), letting `mv ~/.gemini ~/.gemini_old && mkdir
-            ~/.gemini` evict the mount from its expected path without ever
-            touching the mounted files themselves. Linux's mount-busy
-            protection only guards the mounted path itself, not an
-            ancestor directory being renamed — mounting the directory
-            makes ~/.gemini itself the protected boundary.
           - A read-only bind mount is enforced by the kernel at the mount-
             namespace level. Since this container is never run --privileged
             and is granted no extra capabilities, even a candidate who gains
-            root inside the container cannot write to, remove, or unmount
-            it — this is not a Unix-permission-bits trick, which
-            in-container root always defeats.
-          - settings.json (inside the mounted directory) closes a separate
-            bypass: a writable settings.json would let a candidate
-            reconfigure Gemini CLI's `context.fileName` to point at a
-            different, unrestricted filename, sidestepping GEMINI.md
-            entirely without ever touching it.
+            root inside the container cannot write to or remove either
+            mounted file directly — this is not a Unix-permission-bits
+            trick, which in-container root always defeats.
+          - settings.json closes a separate bypass: a writable settings.json
+            would let a candidate reconfigure Gemini CLI's `context.fileName`
+            to point at a different, unrestricted filename, sidestepping
+            GEMINI.md entirely without ever touching it.
 
-        KNOWN RESIDUAL GAP (not closed by this or any mount-based fix):
-        Gemini CLI resolves ~/.gemini via the ordinary $HOME environment
-        variable, which the candidate's own shell fully controls —
-        `HOME=/tmp/x gemini` relocates the lookup to an unmounted path,
-        finding no restriction file at all. No file-permission or mount
-        scope change can close this; it requires network-level validation
-        of the Gemini API calls leaving the container, a distinct, larger
-        future story. See deferred-work.md.
+        These are FILE-level mounts, not a directory-level mount over all
+        of ~/.gemini — Gemini CLI writes several other files there on every
+        launch (project registry `projects.json`, `installation_id`,
+        checkpoint/tool-output cleanup), and a directory-wide :ro mount
+        makes every one of those writes throw EROFS and crash the CLI
+        outright (discovered live: guarded-mode containers were completely
+        unusable under the directory-level mount). File-level mounts leave
+        those sibling writes working normally.
+
+        KNOWN RESIDUAL GAPS (not closed by this or any mount-based fix):
+          - Gemini CLI resolves ~/.gemini via the ordinary $HOME environment
+            variable, which the candidate's own shell fully controls —
+            `HOME=/tmp/x gemini` relocates the lookup to an unmounted path,
+            finding no restriction file at all.
+          - `mv ~/.gemini ~/.gemini_old && mkdir ~/.gemini` evicts the mount
+            from its expected path without ever touching the mounted files
+            themselves, since Linux's mount-busy protection only guards the
+            mounted path itself, not an ancestor directory being renamed.
+            (A directory-level mount would close this specific bypass, but
+            at the cost of breaking the CLI entirely — not worth it given
+            the strictly-easier $HOME bypass above is already open.)
+        No file-permission or mount scope change closes these; it requires
+        network-level validation of the Gemini API calls leaving the
+        container, a distinct, larger future story. See deferred-work.md.
 
         Returns (container_id, port, guarded_mode_enforced) on success, or
         (None, None, True) if no container was ever created — the True
@@ -138,11 +144,18 @@ class DockerService:
                 with open(settings_path, 'w', encoding='utf-8') as f:
                     f.write(_GUARDED_MODE_SETTINGS_JSON)
 
-                # Mount the whole directory, not the two files individually —
-                # see docstring: a file-level mount leaves the directory
-                # itself candidate-writable, which a parent-rename defeats.
+                # File-level mounts, not the whole directory: Gemini CLI writes
+                # several other files under ~/.gemini on every launch (project
+                # registry, installation ID, checkpoint/tool-output cleanup) —
+                # a directory-wide :ro mount makes all of those throw EROFS and
+                # crash the CLI outright. The mv-rename bypass this reopens
+                # (mv ~/.gemini ~/.gemini_old && mkdir ~/.gemini) is strictly
+                # weaker than the already-accepted `HOME=/tmp/x gemini` bypass
+                # documented above, so this trades a broken CLI for a residual
+                # gap no worse than one already in scope.
                 mount_args = [
-                    '-v', f'{gemini_dir}:/home/coder/.gemini:ro',
+                    '-v', f'{gemini_dir}/GEMINI.md:/home/coder/.gemini/GEMINI.md:ro',
+                    '-v', f'{gemini_dir}/settings.json:/home/coder/.gemini/settings.json:ro',
                 ]
                 guarded_mode_enforced = True
             except Exception as e:
@@ -336,9 +349,13 @@ Save all files first (Ctrl+S).
             # string prefix — otherwise a sibling directory whose name
             # merely extends the root string (e.g. "...-guarded-mode-2")
             # would incorrectly match and get swept too.
+            # Source is now a file two levels below the per-assignment host
+            # directory (.../<name>/gemini/GEMINI.md), not the gemini/
+            # directory itself — dirname() twice to reach the directory
+            # create_container() actually created and needs removed.
             root_with_sep = os.path.join(Config.GUARDED_MODE_HOST_TMP_ROOT, '')
             dirs_to_remove = {
-                os.path.dirname(m.get('Source', ''))
+                os.path.dirname(os.path.dirname(m.get('Source', '')))
                 for m in info.get('Mounts', [])
                 if m.get('Source', '').startswith(root_with_sep)
             }

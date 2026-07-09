@@ -175,6 +175,18 @@ Known gaps are tracked in `_bmad-output/implementation-artifacts/deferred-work.m
 
 ---
 
+## Latest Fix (2026-07-09) — Guarded-mode containers were completely broken
+
+Live bug found via user report: `gemini` crashed on launch inside guarded-mode containers with `EROFS: read-only file system` on `~/.gemini/projects.json` and `~/.gemini/installation_id`. Root cause: Story 9.7's `docker_service.py` `create_container()` bind-mounted the **entire** `~/.gemini` directory read-only, but Gemini CLI writes several other files there on every launch (project registry, installation ID, checkpoint/tool-output cleanup) — those writes threw EROFS and crashed the CLI outright, making guarded mode unusable (not just honor-system-weak — actually broken).
+
+Fixed: `mount_args` now bind-mounts `GEMINI.md` and `settings.json` individually (`-v host/GEMINI.md:/home/coder/.gemini/GEMINI.md:ro`, same for `settings.json`) instead of mounting the parent directory. This reopens the `mv ~/.gemini ~/.gemini_old && mkdir ~/.gemini` bypass the directory-level mount was meant to close — but that bypass is strictly weaker than the already-accepted `HOME=/tmp/x gemini` residual gap (documented in the same docstring), so net security posture is essentially unchanged while functionality is restored. `_cleanup_guarded_mode_host_files()` updated to `dirname()` twice (Source is now a file two levels below the per-assignment host dir, not the `gemini/` dir itself) to avoid leaking empty per-assignment directories. `tests/test_guarded_mode_context_file_enforcement.py` updated to match (2 file-level mounts instead of 1 directory mount); full suite re-verified at 132/132 passing.
+
+**No Docker image rebuild needed** — this is a `docker run` flag change in `docker_service.py`, not a `Dockerfile.codeserver` change. Any already-running guarded-mode container still has the old broken mount baked in and must be recreated (stop/remove it, restart the Flask backend so the code change loads, regenerate the candidate link) — it cannot be fixed in place.
+
+Uncommitted, in the working tree pending user review (same as everything else below).
+
+---
+
 ## Next Session — Start Here
 
 **Workflow state: deferred-work quick-dev batch fully executed (2026-07-04).** A `bmad-party-mode` roundtable (John/PM, Winston/Architect, Amelia/Dev) triaged all 19 `deferred-work.md` items; tasks #1-#10 (all quick-dev items) were implemented, tested, and verified this session. Full detail of what changed: `deferred-work.md`'s new "Resolved 2026-07-04" section at the top. **Test suite: 83 passing (was 64 at session start; +19 new tests, 0 regressions).**
