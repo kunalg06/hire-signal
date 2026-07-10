@@ -80,7 +80,15 @@ def test_guarded_mode_writes_real_context_files_and_mounts_them_individually(mon
     with open(gemini_md_host_path, encoding="utf-8") as f:
         gemini_content = f.read()
     assert "guarded mode" in gemini_content
-    assert "Do NOT write or output a complete, working solution" in gemini_content
+
+    # Four independent assertions (party-mode review, 2026-07-10), not one
+    # representative substring — GEMINI.md makes four distinct structural
+    # claims, and a single assert only pinning claim 1 would stay green if
+    # a future edit silently dropped claims 2-4.
+    assert "Do NOT write, output, or suggest ANY code" in gemini_content            # claim 1: zero code
+    assert "instructions.md" in gemini_content and "solution.py" in gemini_content  # claim 2: grounded in workspace files
+    assert "point to WHERE" in gemini_content                                        # claim 3: location-only guidance
+    assert "```" not in gemini_content                                              # regression guard: no code-fence template ever crept back in
 
     with open(settings_host_path, encoding="utf-8") as f:
         settings_content = json.loads(f.read())
