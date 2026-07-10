@@ -29,11 +29,27 @@ class DatabaseService:
             return cursor.fetchone()
 
     def list_assignments(self):
-        """List all assignments"""
+        """List all non-deleted assignments"""
         with self.db.get_connection() as conn:
             cursor = conn.cursor()
-            cursor.execute('SELECT * FROM assignments ORDER BY created_at DESC')
+            cursor.execute('''
+                SELECT * FROM assignments
+                WHERE is_deleted IS NULL OR is_deleted = 0
+                ORDER BY created_at DESC
+            ''')
             return cursor.fetchall()
+
+    def soft_delete_assignment(self, assignment_id):
+        """Soft-delete: hide assignment from lists/pickers without touching
+        historical submissions/results that still reference its id"""
+        with self.db.get_connection() as conn:
+            cursor = conn.cursor()
+            cursor.execute(
+                'UPDATE assignments SET is_deleted = 1 WHERE id = ?',
+                (assignment_id,)
+            )
+            conn.commit()
+            return cursor.rowcount > 0
 
     def create_session_link(self, link_id, assignment_id, container_id, port, expires_at,
                             ai_assistance_mode=None, guarded_mode_enforced=None):
@@ -115,6 +131,24 @@ class DatabaseService:
                 WHERE s.submission_id = ?
             ''', (submission_id,))
             return cursor.fetchone()
+
+    def delete_submission(self, submission_id):
+        """Hard-delete a submission and its owned child rows (files, session
+        logs, dimension scores, hire evaluation) in one transaction.
+        score_overrides and flag_events are append-only audit logs (see
+        CLAUDE.md) and are deliberately NOT touched here — they remain as
+        historical calibration data even after the submission itself is
+        removed from the results list."""
+        with self.db.get_connection() as conn:
+            cursor = conn.cursor()
+            cursor.execute('DELETE FROM submission_files WHERE submission_id = ?', (submission_id,))
+            cursor.execute('DELETE FROM session_logs WHERE submission_id = ?', (submission_id,))
+            cursor.execute('DELETE FROM dimension_scores WHERE submission_id = ?', (submission_id,))
+            cursor.execute('DELETE FROM hire_evaluations WHERE submission_id = ?', (submission_id,))
+            cursor.execute('DELETE FROM submissions WHERE submission_id = ?', (submission_id,))
+            deleted = cursor.rowcount > 0
+            conn.commit()
+            return deleted
 
     def flag_submission(self, submission_id, reason, flagged_by=None, event_id=None):
         """Flag a submission for manual review. Always appends one row to the

@@ -218,3 +218,13 @@ class Database:
                     conn.commit()
             except sqlite3.OperationalError:
                 pass  # Column already exists
+
+        # Schema migration: soft-delete flag for assignments, so removing one
+        # from the employer-facing catalog/list doesn't orphan historical
+        # submissions/results still referencing it by id
+        try:
+            with self.get_connection() as conn:
+                conn.execute('ALTER TABLE assignments ADD COLUMN is_deleted INTEGER DEFAULT 0')
+                conn.commit()
+        except sqlite3.OperationalError:
+            pass  # Column already exists

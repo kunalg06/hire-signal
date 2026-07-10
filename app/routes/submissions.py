@@ -364,6 +364,24 @@ def get_session_logs(submission_id):
     })
 
 
+@submissions_bp.route('/submissions/<submission_id>', methods=['DELETE'])
+def delete_submission(submission_id):
+    """Permanently delete a submission and its owned rows (files, session
+    logs, dimension scores, hire evaluation) from the results view. The
+    append-only score_overrides/flag_events audit logs are preserved."""
+    if not db_service.get_submission(submission_id):
+        return jsonify({'error': 'Submission not found'}), 404
+
+    if not db_service.delete_submission(submission_id):
+        return jsonify({'error': 'Failed to delete submission'}), 500
+
+    return jsonify({
+        'submission_id': submission_id,
+        'deleted': True,
+        'message': 'Submission deleted',
+    }), 200
+
+
 @submissions_bp.route('/submissions/<submission_id>/flag', methods=['POST'])
 def flag_submission(submission_id):
     """Flag a submission for manual review"""

@@ -188,7 +188,7 @@ Extend `VALID_CHALLENGE_TYPES`/`VALID_SKILL_AREAS` in `app/routes/challenges.py`
 
 | Table | Purpose | Key columns |
 |---|---|---|
-| `assignments` | An employer-created assessment | `id, title, description, starter_code, evaluation_criteria, challenge_id` |
+| `assignments` | An employer-created assessment | `id, title, description, starter_code, evaluation_criteria, challenge_id, is_deleted` |
 | `session_links` | Maps a shareable link to a running container | `link_id, assignment_id, container_id, port, expires_at` |
 | `submissions` | A candidate's submitted code | `submission_id, link_id, assignment_id, score, feedback, is_flagged, flag_reason, flag_by, flagged_at` |
 | `submission_files` | Individual files within a submission | `file_id, submission_id, filename, content, file_size` |
@@ -211,6 +211,7 @@ All routes are registered as Flask blueprints (`app/routes/`) with `url_prefix='
 |---|---|
 | GET/POST | `/api/assignments` |
 | GET | `/api/assignments/<id>` |
+| DELETE | `/api/assignments/<id>` (soft-delete; historical links/submissions still resolve by id) |
 | GET | `/api/assignments/<id>/candidates` |
 
 **Links** (`app/routes/links.py`)
@@ -236,6 +237,7 @@ All routes are registered as Flask blueprints (`app/routes/`) with `url_prefix='
 | POST | `/api/submit-with-files/<link_id>` |
 | GET | `/api/submission/<id_or_link>` |
 | GET | `/api/session-logs/<submission_id>` |
+| DELETE | `/api/submissions/<id>` (deletes owned rows; `score_overrides`/`flag_events` audit logs preserved) |
 | POST | `/api/submissions/<id>/flag` |
 | POST | `/api/submissions/<id>/override` |
 

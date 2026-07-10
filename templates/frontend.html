@@ -927,7 +927,11 @@ async function loadCatalog() {
                 <p style="font-size:0.83em; color:#666; line-height:1.5; margin-bottom:8px;">
                     ${escHtml((c.description || '').substring(0, 120))}…
                 </p>
-                <div style="font-size:0.78em; color:#aaa;">ID: ${c.id.substring(0,8)}… · Click to use</div>
+                <div style="display:flex; justify-content:space-between; align-items:center;">
+                    <div style="font-size:0.78em; color:#aaa;">ID: ${c.id.substring(0,8)}… · Click to use</div>
+                    <button class="btn-sm" style="background:#f44336; color:white; border:none; border-radius:6px; cursor:pointer; padding:5px 10px;"
+                        onclick="event.stopPropagation(); deleteChallenge('${c.id}', '${escHtml(c.title)}')">🗑️ Delete</button>
+                </div>
             </div>
         `).join('');
     } catch (err) {
@@ -972,6 +976,19 @@ async function useCatalogChallenge(id, title) {
     }
 }
 
+async function deleteChallenge(id, title) {
+    if (!confirm(`Remove "${title}" from the catalog? This won't affect any assignments already created from it.`)) return;
+    try {
+        const res  = await fetch(`${API}/challenges/${id}`, { method: 'DELETE' });
+        const data = await res.json();
+        if (!res.ok) throw new Error(data.error || data.detail);
+        showAlert('catAlert', 'Challenge removed from catalog.', 'success');
+        loadCatalog();
+    } catch (err) {
+        showAlert('catAlert', 'Error: ' + err.message, 'error');
+    }
+}
+
 // ══════════════════════════════════════════════════════════════════════════
 // TAB 3 — Student Link
 // ══════════════════════════════════════════════════════════════════════════
@@ -991,7 +1008,11 @@ async function loadAssignments() {
             <div class="challenge-card" style="margin-bottom:8px;" onclick="document.getElementById('assignId').value='${a.id}'">
                 <div style="font-weight:600; margin-bottom:4px;">${escHtml(a.title)}</div>
                 <div style="font-size:0.8em; color:#aaa; margin-bottom:8px;">ID: ${a.id}</div>
-                <button class="btn-sm btn-outline" onclick="event.stopPropagation(); window.open('/student/preview/assignment/${a.id}', '_blank')">Preview as Student</button>
+                <div style="display:flex; gap:8px;">
+                    <button class="btn-sm btn-outline" onclick="event.stopPropagation(); window.open('/student/preview/assignment/${a.id}', '_blank')">Preview as Student</button>
+                    <button class="btn-sm" style="background:#f44336; color:white; border:none; border-radius:6px; cursor:pointer;"
+                        onclick="event.stopPropagation(); deleteAssignment('${a.id}', '${escHtml(a.title)}')">🗑️ Delete</button>
+                </div>
             </div>
         `).join('');
     } catch (err) {
@@ -1017,6 +1038,19 @@ async function generateLink() {
             new Date(data.expires_at).toLocaleString();
         document.getElementById('linkResult').classList.add('show');
         showAlert('linkAlert', 'Link created! Share the URL with the candidate.', 'success');
+    } catch (err) {
+        showAlert('linkAlert', 'Error: ' + err.message, 'error');
+    }
+}
+
+async function deleteAssignment(id, title) {
+    if (!confirm(`Remove "${title}" from your saved assignments? Existing candidate links and results for it are kept and remain reachable.`)) return;
+    try {
+        const res  = await fetch(`${API}/assignments/${id}`, { method: 'DELETE' });
+        const data = await res.json();
+        if (!res.ok) throw new Error(data.error || data.detail);
+        showAlert('linkAlert', 'Assignment removed from your list.', 'success');
+        loadAssignments();
     } catch (err) {
         showAlert('linkAlert', 'Error: ' + err.message, 'error');
     }
@@ -1146,7 +1180,10 @@ function renderGrid() {
             <td style="font-weight:700; font-size:1.05em;">${Math.round(score)}</td>
             <td>${hireBadgeHtml(c.hire_recommendation)}</td>
             ${dimCells}
-            <td><button class="btn btn-sm" onclick="event.stopPropagation();viewCandidate('${c.submission_id}')">Detail</button></td>
+            <td style="display:flex; gap:6px;">
+                <button class="btn btn-sm" onclick="event.stopPropagation();viewCandidate('${c.submission_id}')">Detail</button>
+                <button class="btn btn-sm" style="background:#f44336;" onclick="event.stopPropagation();deleteSubmission('${c.submission_id}')">🗑️</button>
+            </td>
         </tr>`;
     }).join('');
 }
@@ -1199,6 +1236,25 @@ async function viewCandidate(submissionId) {
         document.getElementById('resultsPanel').style.display = 'block';
         document.getElementById('resultsPanel').scrollIntoView({ behavior: 'smooth', block: 'start' });
     } catch(err) {
+        showAlert('resAlert', 'Error: ' + err.message, 'error');
+    }
+}
+
+async function deleteSubmission(submissionId) {
+    if (!confirm('Delete this candidate\'s submission and results? This cannot be undone.')) return;
+    try {
+        const res  = await fetch(`${API}/submissions/${submissionId}`, { method: 'DELETE' });
+        const data = await res.json();
+        if (!res.ok) throw new Error(data.error || data.detail);
+
+        _allCandidates = _allCandidates.filter(c => c.submission_id !== submissionId);
+        if (_currentSubId === submissionId) {
+            document.getElementById('resultsPanel').style.display = 'none';
+            _currentSubId = null;
+        }
+        renderGrid();
+        showAlert('resAlert', 'Submission deleted.', 'success');
+    } catch (err) {
         showAlert('resAlert', 'Error: ' + err.message, 'error');
     }
 }

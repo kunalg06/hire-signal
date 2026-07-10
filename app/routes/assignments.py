@@ -76,6 +76,22 @@ def get_assignment(assignment_id):
     })
 
 
+@assignments_bp.route('/assignments/<assignment_id>', methods=['DELETE'])
+def delete_assignment(assignment_id):
+    """Soft-delete: hide assignment from lists/pickers. Historical
+    submissions/results tied to this assignment_id are left untouched and
+    remain reachable by direct id."""
+    if not db_service.get_assignment(assignment_id):
+        return jsonify({"detail": "Assignment not found"}), 404
+
+    db_service.soft_delete_assignment(assignment_id)
+    return jsonify({
+        "id": assignment_id,
+        "deleted": True,
+        "message": "Assignment removed from lists",
+    }), 200
+
+
 @assignments_bp.route('/assignments/<assignment_id>/candidates', methods=['GET'])
 def get_candidates(assignment_id):
     """Return all candidates for an assignment ranked by composite score"""

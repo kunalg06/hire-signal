@@ -175,6 +175,24 @@ Known gaps are tracked in `_bmad-output/implementation-artifacts/deferred-work.m
 
 ---
 
+## New Feature (2026-07-10) — Delete entry option: catalog, saved assignments, results
+
+User request: add a way to remove entries from the Challenge Catalog, the Saved Assignments list (Tab 3, where student links are generated from), and the Results candidate grid.
+
+**Challenge Catalog**: backend already had `DELETE /api/challenges/<id>` (soft-delete via `is_published = -1`) from earlier work — just wired a 🗑️ button into `loadCatalog()`'s card template, calling a new `deleteChallenge(id, title)` JS function (confirm → DELETE → reload catalog).
+
+**Saved Assignments**: no backend delete existed. Added: `assignments` table migration `is_deleted INTEGER DEFAULT 0`; `DatabaseService.list_assignments()` now filters `WHERE is_deleted IS NULL OR is_deleted = 0`; new `DatabaseService.soft_delete_assignment()`; new `DELETE /api/assignments/<id>` route (404 if never existed, 200 idempotent on repeat deletes). Deliberately soft — a deleted assignment disappears from `GET /api/assignments` (so it drops out of both the Saved Assignments list and the Results tab's assignment picker) but `GET /api/assignments/<id>` still resolves it directly, so historical session_links/submissions/results referencing it by id keep working. Frontend: 🗑️ button in `loadAssignments()`'s card, `deleteAssignment(id, title)` JS function.
+
+**Results candidate grid**: no backend delete existed. Added `DatabaseService.delete_submission()` — hard-deletes the submission plus its owned rows (`submission_files`, `session_logs`, `dimension_scores`, `hire_evaluations`) in one transaction. Deliberately does NOT touch `score_overrides`/`flag_events` — both are documented append-only audit logs (CLAUDE.md) and are preserved as historical calibration data even after the submission itself is gone. New `DELETE /api/submissions/<id>` route (404 if not found). Frontend: 🗑️ button added next to "Detail" in each candidate grid row, `deleteSubmission(submissionId)` JS function — also clears the detail panel if it was showing the just-deleted candidate.
+
+New test file `tests/test_delete_endpoints.py` (9 tests, same DB-isolation pattern as `test_candidates_endpoint.py` — both `app.routes.assignments.db_service` and `app.routes.submissions.db_service` singletons patched to the same temp DB): soft-delete hides from list but not direct lookup, idempotent re-delete, submission cascade removes all owned rows, audit logs (`flag_events`/`score_overrides`) survive submission deletion, 404s for nonexistent ids, sibling submissions unaffected. Full suite: **141 passing** (was 132).
+
+Verified live end-to-end against the real running backend (not just pytest): created a real challenge/assignment/submission via direct DB calls, called all three new/existing DELETE endpoints through the actual HTTP API, confirmed each disappears from its respective list endpoint (and, for submissions, 404s on direct lookup afterward), then cleaned up the leftover soft-deleted assignment row. Also confirmed via `curl` that the served frontend HTML contains all three new JS functions. `assignments.is_deleted` column confirmed present on the real `data/assignments.db` after a clean backend restart (migrations are idempotent `ALTER TABLE` + `except sqlite3.OperationalError`).
+
+Not committed yet — pending user request.
+
+---
+
 ## Known Non-Issue (2026-07-10) — `/ide install` shows two harmless "Failed to save settings" errors in guarded mode
 
 Investigated live user report. Root cause: `/ide install` tries to persist `ide.enabled: true` into `~/.gemini/settings.json` after installing the companion extension — but that's the same file guarded-mode bind-mounts read-only (Story 9.7 / the EROFS fix below). Write fails, error is printed, but it's non-fatal — the CLI stays fully usable right after (confirmed via the CLI's own bundled source: the failure path only emits UI feedback, never throws). Only the optional IDE-companion live-diff-sync feature stays disabled; not needed since code-server already shows the candidate's files. **User decision: leave as-is, no code change** — documented in `deferred-work.md` under "live user report on guarded-mode settings.json mount". Revisit only if it becomes a real complaint (fix would be pre-baking `ide.enabled: true` into the injected settings.json).
@@ -284,7 +302,7 @@ New test files this session: `test_generate_link_ai_assistance_mode.py`, `test_g
 
 | Table | Key Columns |
 |---|---|
-| `assignments` | `id, title, description, starter_code, evaluation_criteria, challenge_id` |
+| `assignments` | `id, title, description, starter_code, evaluation_criteria, challenge_id, is_deleted` |
 | `session_links` | `link_id, assignment_id, container_id, port, expires_at` |
 | `submissions` | `submission_id, link_id, assignment_id, score, feedback, is_flagged, flag_reason, flag_by, flagged_at` |
 | `submission_files` | `file_id, submission_id, filename, content, file_size` |
@@ -304,6 +322,7 @@ New test files this session: `test_generate_link_ai_assistance_mode.py`, `test_g
 | GET | `/api/health` | Health check |
 | POST | `/api/assignments` | Create assignment (accepts optional `challenge_id`) |
 | GET | `/api/assignments/<id>` | Get assignment |
+| DELETE | `/api/assignments/<id>` | Soft-delete assignment (hides from lists; historical links/submissions still resolve by id) |
 | POST | `/api/generate-link/<assignment_id>` | Generate student link + spin up container |
 | POST | `/api/generate-challenge` | Generate + persist challenge to catalog |
 | GET | `/api/challenges` | List challenges (filterable) |
@@ -315,6 +334,7 @@ New test files this session: `test_generate_link_ai_assistance_mode.py`, `test_g
 | POST | `/api/submit-with-files/<link_id>` | Submit workspace files for evaluation |
 | GET | `/api/submission/<id_or_link>` | Get submission + evaluation results |
 | GET | `/api/submissions` | List all submissions |
+| DELETE | `/api/submissions/<id>` | Delete submission + owned rows (files/logs/dim-scores/hire-eval); audit logs preserved |
 | POST | `/api/submissions/<id>/flag` | Flag submission for manual review |
 | POST | `/api/submissions/<id>/override` | Apply human override to AI recommendation |
 | GET | `/api/analytics/overrides` | Override calibration analytics |
