@@ -625,6 +625,12 @@
                     </div>
                 </details>
             </div>
+            <div class="card">
+                <details>
+                    <summary>AI Conversation Timeline</summary>
+                    <div class="detail-body" id="sessionLogTimeline"></div>
+                </details>
+            </div>
         </div>
     </div>
 
@@ -1210,6 +1216,8 @@ async function viewCandidate(submissionId) {
             `Assignment: ${data.assignment_title || '—'}  ·  Submitted: ${data.submitted_at || '—'}`;
         document.getElementById('resFeedback').textContent = data.feedback || 'No feedback yet.';
 
+        renderSessionLogTimeline(submissionId);
+
         drawRadar('radarSvg', data.dimensions || {});
 
         document.getElementById('dimTableBody').innerHTML = DIM_ORDER.map(dim => {
@@ -1237,6 +1245,34 @@ async function viewCandidate(submissionId) {
         document.getElementById('resultsPanel').scrollIntoView({ behavior: 'smooth', block: 'start' });
     } catch(err) {
         showAlert('resAlert', 'Error: ' + err.message, 'error');
+    }
+}
+
+async function renderSessionLogTimeline(submissionId) {
+    const el = document.getElementById('sessionLogTimeline');
+    el.innerHTML = '<p style="color:#aaa; font-size:0.88em;">Loading conversation…</p>';
+    try {
+        const res  = await fetch(`${API}/session-logs/${submissionId}`);
+        const data = await res.json();
+        const logs = (res.ok && data.logs) || [];
+
+        if (logs.length === 0) {
+            el.innerHTML = '<p style="color:#aaa; font-size:0.88em;">No AI session logs recorded for this submission.</p>';
+            return;
+        }
+
+        el.innerHTML = logs.map(log => `
+            <div style="margin-bottom:14px; padding:10px 14px; background:#f8f9fc; border-radius:8px; border-left:3px solid #667eea;">
+                <div style="font-size:0.75em; color:#999; margin-bottom:6px;">
+                    ${escHtml(log.timestamp || '')} &middot; ${escHtml(log.interaction_type || 'gemini_cli')}
+                    ${log.file_changes_count ? `<span style="margin-left:8px; color:#667eea; font-weight:600;">${log.file_changes_count} file change(s)</span>` : ''}
+                </div>
+                <div style="font-size:0.88em; color:#333; margin-bottom:6px;"><strong>Candidate:</strong> ${escHtml(log.prompt || '')}</div>
+                <div style="font-size:0.88em; color:#444; white-space:pre-wrap;"><strong>AI:</strong> ${escHtml(log.response_summary || '')}</div>
+            </div>
+        `).join('');
+    } catch (err) {
+        el.innerHTML = '<p style="color:#aaa; font-size:0.88em;">No AI session logs recorded for this submission.</p>';
     }
 }
 

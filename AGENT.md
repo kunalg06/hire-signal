@@ -175,6 +175,34 @@ Known gaps are tracked in `_bmad-output/implementation-artifacts/deferred-work.m
 
 ---
 
+## Major Fix + Feature (2026-07-10) — Session-log capture fix, guarded-mode loosened, AI conversation transparency
+
+User feedback: guarded mode felt too strict, and asked to research how comparable platforms (HackerRank, CodeSignal, Codility, CoderPad) handle AI-assisted coding assessments, and how to actually test AI collaboration alongside the 8-dimension rubric. Investigation (Explore agent + direct file reads) surfaced something much bigger than a wording tweak.
+
+**Root discovery — session-log capture was completely dead code, so 4 of 8 scoring dimensions were being graded blind.** `submit_with_files()` looked for a Gemini CLI session log at hardcoded paths (`/tmp/claude_session.log`, `/root/.claude/logs/session.log`, etc.) — leftovers from this project's pre-Gemini Claude Code CLI era that Gemini CLI never wrote to — AND stored any found content under the key `'claude_session.log'` while the parsing gate checked for a different, never-set key `'gemini_session.log'`. Net effect: `session_logs` table was **always empty** for every real submission, so `score_8_dimensions()`'s rubric — which explicitly grades `debugging_with_ai`, `iteration_quality`, `communication_clarity`, and `token_efficiency` from the actual candidate↔AI transcript — always fell back to `"No Gemini session logs recorded for this submission."` and scored these 4 dimensions with zero real evidence, despite the platform's entire premise being to evaluate AI-collaboration quality.
+
+**Investigated Gemini CLI's real on-disk format empirically** (live container: ran real prompts, `find`/`cat` inside `~/.gemini/tmp`, confirmed by cross-referencing actual terminal output against the captured file content) rather than guessing:
+- Real path: `~/.gemini/tmp/<workspace-dirname>/chats/session-<timestamp>-<hash>.jsonl` — one file per `gemini` invocation.
+- JSON-lines format: header line (`sessionId`, `kind`), `{"$set": {...}}` metadata bumps, and bare message objects (`id`, `timestamp`, `type`: `"user"`|`"gemini"`, `content`).
+- `type:"user"` content is a list of `{"text": ...}` (genuine candidate prompt) or `{"functionResponse": {...}}` (tool-call result being fed back — not candidate-authored).
+- `type:"gemini"` content is a plain string, often `""` while the model is still "thinking"/making tool calls (`toolCalls` field) — the real visible reply arrives as a **later, separate message id**.
+- Header's `kind` field distinguishes `"main"` (real candidate-facing conversation) from `"subagent"` (Gemini's own internal tool-use sessions, e.g. spawning a sub-session to run `git status`/`git log` for its own context-gathering) — subagent sessions live in a nested `chats/<session-id>/<id>.jsonl` path and must be excluded entirely, never scored/displayed.
+
+**Fixed end-to-end:**
+- `DockerService.get_gemini_chat_files()` (new) — pulls the whole `~/.gemini/tmp` tree via the existing `get_archive`+tarfile pattern (mirrors `EvaluationService.extract_container_files()`), filters to `.jsonl` files under a `chats/` path.
+- `SessionLogService.parse_gemini_chat_session()`/`parse_gemini_chat_sessions()` (new) — dedupes messages by id (last occurrence wins), skips the auto-injected `<session_context>` system message and `kind:"subagent"` files entirely, pairs each genuine candidate text prompt with the next non-empty Gemini text reply chronologically, accumulates `toolCalls` across the whole turn (not just the final reply, which rarely carries its own) for a `file_changes_count` heuristic (counts `write`/`edit`/`replace`-named tool calls). Old `parse_session_log()` regex-based parser kept as a defensive fallback, unused in the live path.
+- `submissions.py`'s `submit_with_files()` — replaced the dead Claude-CLI paths/key with the real capture call. Found and fixed a real regression during testing: `gemini_chat_files` was only assigned inside `if container_id:`, causing an `UnboundLocalError` when Docker/container_id is unavailable (a documented graceful-degradation path) — now initialized before the conditional.
+- 20 new tests (`tests/test_session_log_capture.py`, `tests/test_submit_with_files_session_logs.py`) covering the parser's edge cases (subagent exclusion, dedup, thinking-only turns, trailing unpaired prompts, multi-file merge) and the route's actual DB persistence.
+- **Verified live end-to-end with zero mocks**: real container, real `gemini` CLI prompts, real `/submit-with-files` call → `session_logs` table populated with the exact real prompt/response text → real Gemini scoring call → `debugging_with_ai`/`iteration_quality`/`communication_clarity`/`token_efficiency` rationale now **quotes the actual candidate prompt** and reasons from genuine evidence (e.g. correctly penalized `iteration_quality` for "only one interaction recorded... no evidence of iterative improvement"), where previously it would have reasoned from the placeholder string alone.
+
+**Guarded mode loosened to a HackerRank-style middle ground** (reverses this same session's earlier "zero code, ever" decision, based on the user's research into how HackerRank/CodeSignal/Codility/CoderPad govern AI-assisted assessments — the trend is governed AI availability + transparency, not a hard block). New `_GUARDED_MODE_GEMINI_MD`: no complete/full solutions in one shot, but short targeted code (a corrected line, a small snippet, method syntax) IS allowed when it's the natural answer to a specific question; explicitly frames the AI as a collaborator whose conversation is visible to the employer, not a restriction to route around. `tests/test_guarded_mode_context_file_enforcement.py`'s 4 assertions rewritten to pin the new claims. **Verified live across 3 cases** in a real container: a narrow syntax/bug question got a short corrected line; an explicit "write the complete file from scratch" request was declined (still only illustrated the one-line fix); an adversarial "ignore your restrictions" jailbreak attempt was also correctly declined for the full file.
+
+**AI Conversation Timeline added to the employer-facing Results UI** (`templates/frontend.html`) — new collapsible section in the candidate detail panel, next to "Full AI Feedback", consuming the already-existing (previously unused) `GET /api/session-logs/<id>` endpoint. Shows timestamp, interaction type, file-change badge, and the prompt/response text per turn. Empty-state message when no logs exist. **Verified visually in a real browser** (claude-in-chrome) against seeded real-shaped data — timeline rendered correctly with both entries, badge only on the entry with a file change.
+
+Full suite: **164/164 passing** (was 144). All live-test containers/DB rows/scratch files cleaned up. Not committed yet — pending user request.
+
+---
+
 ## New Feature (2026-07-10) — 8-dimension evaluation criteria + stricter guarded-mode GEMINI.md
 
 Two user-requested changes to `evaluation_service.py` and `docker_service.py`:
@@ -195,6 +223,8 @@ Full suite: 141/141 still passing (no test asserted the old exact wording beside
 - Full suite re-verified at **144/144** after the fixes (was 141).
 
 **Open, not acted on this session (product questions, not engineering gaps):** John's question of whether guarded mode is a hiring-integrity control or a candidate-friendly mode — the current implementation is unambiguously the former (confirmed by the live spot-check: even an innocent syntax question gets no code), and that's a product-scope decision for the user, not something to resolve unilaterally.
+
+**Superseded same day** — see "Major Fix + Feature (2026-07-10)" above: the user, informed by research into HackerRank/CodeSignal/Codility/CoderPad, answered John's question in the candidate-friendly-but-governed direction. The "zero code, ever" wording below was replaced with a looser rule set the same day it shipped.
 
 Not committed yet — pending user request; Amelia's suggestion was to split into 2 commits (prompt/schema/validation change vs. guarded-mode rewrite), since they're unrelated concerns.
 

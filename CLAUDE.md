@@ -88,7 +88,7 @@ Single-file HTML/CSS/vanilla-JS employer dashboard (~85KB). No build step, no fr
 
 - **Visibility floor**: score affects candidate rank, never hides a candidate. Un-evaluated candidates always sort last regardless of sort direction (`math.inf`/`-math.inf` sentinel in the ranking route).
 
-- **Guarded vs unguarded mode**: `unguarded` lets Gemini give full solutions inside the student container; `guarded` injects a `/workspace/GEMINI.md` asking Gemini CLI to restrict itself to conceptual guidance. **This is honor-system-only** — the candidate has shell access and can delete/edit the file. Accepted as v1 scope (see `deferred-work.md`).
+- **Guarded vs unguarded mode**: `unguarded` lets Gemini give full solutions inside the student container; `guarded` read-only bind-mounts a `~/.gemini/GEMINI.md` (not workspace-local — Gemini CLI's global context file) asking Gemini CLI to act as a collaborator: no complete/full solutions in one shot, but short targeted code (a corrected line, a snippet, method syntax) is allowed for a specific question — governed AI availability, not a hard code block (revised 2026-07-10 from an earlier stricter "zero code" wording, based on how HackerRank/CodeSignal/Codility/CoderPad handle AI-assisted assessments). **Enforcement is honor-system for the wording itself** — the candidate has shell access and could set `HOME` elsewhere to dodge the mounted file entirely; the two mounted files (`GEMINI.md`, `settings.json`) themselves are kernel-enforced read-only. Accepted as v1 scope (see `deferred-work.md`).
 
 - **Challenge types**: `bug_fix | feature_extension | refactoring | optimization`
 - **Skill areas**: `api_integration | rate_limiting | data_pipeline | llm_usage | server_monitoring | game_logic`
