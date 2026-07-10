@@ -175,6 +175,12 @@ Known gaps are tracked in `_bmad-output/implementation-artifacts/deferred-work.m
 
 ---
 
+## Known Non-Issue (2026-07-10) — `/ide install` shows two harmless "Failed to save settings" errors in guarded mode
+
+Investigated live user report. Root cause: `/ide install` tries to persist `ide.enabled: true` into `~/.gemini/settings.json` after installing the companion extension — but that's the same file guarded-mode bind-mounts read-only (Story 9.7 / the EROFS fix below). Write fails, error is printed, but it's non-fatal — the CLI stays fully usable right after (confirmed via the CLI's own bundled source: the failure path only emits UI feedback, never throws). Only the optional IDE-companion live-diff-sync feature stays disabled; not needed since code-server already shows the candidate's files. **User decision: leave as-is, no code change** — documented in `deferred-work.md` under "live user report on guarded-mode settings.json mount". Revisit only if it becomes a real complaint (fix would be pre-baking `ide.enabled: true` into the injected settings.json).
+
+---
+
 ## Latest Fix (2026-07-09) — Guarded-mode containers were completely broken
 
 Live bug found via user report: `gemini` crashed on launch inside guarded-mode containers with `EROFS: read-only file system` on `~/.gemini/projects.json` and `~/.gemini/installation_id`. Root cause: Story 9.7's `docker_service.py` `create_container()` bind-mounted the **entire** `~/.gemini` directory read-only, but Gemini CLI writes several other files there on every launch (project registry, installation ID, checkpoint/tool-output cleanup) — those writes threw EROFS and crashed the CLI outright, making guarded mode unusable (not just honor-system-weak — actually broken).
