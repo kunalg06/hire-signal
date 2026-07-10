@@ -189,6 +189,16 @@ Verified live against a real container (not just pytest): `docker inspect` confi
 
 ---
 
+## Latest Fix (2026-07-10) — `/api/generate-challenge` 500s on complex problem statements (unrelated to the fix above)
+
+Live bug found via user report: generating a challenge from a complex, multi-requirement problem statement (e.g. "real-time multiplayer chess server with concurrent move validation, timeouts, reconnection, optimistic locking, auth") reliably 500'd after 3 identical retries, each logging `Gemini JSON response invalid: Unterminated string`. This looked like Story 8.2/8.4's known malformed-JSON issue, but diagnostic probing (`resp.candidates[0].finish_reason`) showed `MAX_TOKENS` on every attempt, with `candidates_token_count` pinned at ~2988/3000 — the model was being cut off mid-JSON deterministically, not failing probabilistically. Story 8.4's 3x retry can't help this class of failure: every retry hits the identical token wall on the same prompt.
+
+Root cause: `generate_challenge()`'s call to `_call_llm_for_json()` passed `max_tokens=3000`, too low for verbose, multi-requirement prompts. Verified live: raising to 12000 completed with `finish_reason=STOP` across 4 independent draws for the same complex prompt, using only 3500-4700 tokens (well under half the new budget) — confirms 3000 was simply an undersized constant, not a Gemini-side reliability issue.
+
+Fixed: `evaluation_service.py`'s `generate_challenge()` now passes `max_tokens=12000` (was 3000). `score_8_dimensions()`'s separate `max_tokens=2000` call was not touched — no evidence of the same failure mode there, not in scope for this fix. Full suite re-verified at 132/132 passing (no test hardcoded the old value). Live end-to-end retest of the exact originally-failing request through the real `/api/generate-challenge` endpoint succeeded on the first attempt (no retry needed), returning a 10KB `starter_code` and `persisted: true`; the test challenge row was deleted from the catalog afterward.
+
+---
+
 ## Next Session — Start Here
 
 **Workflow state: deferred-work quick-dev batch fully executed (2026-07-04).** A `bmad-party-mode` roundtable (John/PM, Winston/Architect, Amelia/Dev) triaged all 19 `deferred-work.md` items; tasks #1-#10 (all quick-dev items) were implemented, tested, and verified this session. Full detail of what changed: `deferred-work.md`'s new "Resolved 2026-07-04" section at the top. **Test suite: 83 passing (was 64 at session start; +19 new tests, 0 regressions).**

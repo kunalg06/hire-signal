@@ -545,7 +545,16 @@ Respond ONLY with valid JSON — no markdown fences, no prose before or after:
 
         try:
             return EvaluationService._call_llm_for_json(
-                generation_prompt, max_tokens=3000,
+                # 3000 was too low: complex, multi-requirement problem
+                # statements (e.g. a concurrent multiplayer game server)
+                # reliably need 3500-4700+ output tokens for title+
+                # description+evaluation_criteria+starter_code, so every
+                # retry hit finish_reason=MAX_TOKENS identically and the
+                # 3x retry in _call_llm_for_json never helped. Verified
+                # live: 12000 completes with finish_reason=STOP across
+                # repeated draws for the same complex prompt, using well
+                # under half the budget.
+                generation_prompt, max_tokens=12000,
                 response_schema=EvaluationService._CHALLENGE_RESPONSE_SCHEMA,
                 validate=_validate_challenge_fields,
             )
