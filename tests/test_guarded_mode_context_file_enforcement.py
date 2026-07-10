@@ -81,14 +81,16 @@ def test_guarded_mode_writes_real_context_files_and_mounts_them_individually(mon
         gemini_content = f.read()
     assert "guarded mode" in gemini_content
 
-    # Four independent assertions (party-mode review, 2026-07-10), not one
+    # Four independent assertions (party-mode review, 2026-07-10; wording
+    # loosened same-day per user research into HackerRank/CodeSignal/
+    # Codility/CoderPad's governed-AI-availability model), not one
     # representative substring — GEMINI.md makes four distinct structural
     # claims, and a single assert only pinning claim 1 would stay green if
     # a future edit silently dropped claims 2-4.
-    assert "Do NOT write, output, or suggest ANY code" in gemini_content            # claim 1: zero code
-    assert "instructions.md" in gemini_content and "solution.py" in gemini_content  # claim 2: grounded in workspace files
-    assert "point to WHERE" in gemini_content                                        # claim 3: location-only guidance
-    assert "```" not in gemini_content                                              # regression guard: no code-fence template ever crept back in
+    assert "does not block AI assistance" in gemini_content                        # claim 1: collaboration framing, not a hard block
+    assert "MAY show short, targeted code" in gemini_content                       # claim 2: limited code assistance IS allowed
+    assert "Do NOT generate a complete, ready-to-submit solution" in gemini_content  # claim 3: full-solution generation still forbidden
+    assert "point to WHERE" in gemini_content and "collaborates with AI" in gemini_content  # claim 4: location guidance + collaboration-quality framing
 
     with open(settings_host_path, encoding="utf-8") as f:
         settings_content = json.loads(f.read())
