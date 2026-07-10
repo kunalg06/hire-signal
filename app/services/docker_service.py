@@ -238,6 +238,48 @@ class DockerService:
             return b''
 
     @staticmethod
+    def get_gemini_chat_files(container_id: str) -> dict:
+        """
+        Pull every Gemini CLI session transcript (.jsonl) out of the
+        container's ~/.gemini/tmp tree. Returns {relative_path: content}.
+
+        Gemini CLI writes one file per `gemini` invocation to
+        ~/.gemini/tmp/<workspace-dirname>/chats/session-<timestamp>-<hash>.jsonl
+        (confirmed empirically by inspecting a real container — see
+        AGENT.md's session-log-capture-fix entry). The workspace-dirname
+        component isn't hardcoded here (it derives from the CLI's own
+        project-hashing, not something this codebase controls), so the
+        whole ~/.gemini/tmp tree is pulled and filtered to '.jsonl' files
+        under a 'chats/' path segment, rather than assuming an exact
+        subdirectory name.
+
+        Mirrors EvaluationService.extract_container_files()'s tar-pull
+        pattern (get_archive + tarfile unpack) rather than duplicating a
+        second copy of that logic inline.
+        """
+        if not container_id:
+            return {}
+        try:
+            raw = DockerService.get_archive(container_id, '/home/coder/.gemini/tmp')
+            if not raw:
+                return {}
+            files = {}
+            with tarfile.open(fileobj=io.BytesIO(raw)) as tar:
+                for member in tar.getmembers():
+                    if not member.isfile() or not member.name.endswith('.jsonl'):
+                        continue
+                    if '/chats/' not in f'/{member.name}':
+                        continue
+                    f = tar.extractfile(member)
+                    if not f:
+                        continue
+                    files[member.name] = f.read().decode('utf-8', errors='replace')
+            return files
+        except Exception as e:
+            logger.warning("get_gemini_chat_files failed for %s: %s", container_id, e)
+            return {}
+
+    @staticmethod
     def inject_workspace_files(container_id: str, title: str, description: str,
                                criteria: str, starter_code: str) -> dict:
         """

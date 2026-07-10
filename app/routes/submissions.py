@@ -144,6 +144,7 @@ def submit_with_files(link_id):
 
     # Collect files from container
     files_dict = {}
+    gemini_chat_files = {}
 
     if container_id:
         logger.info("Reading files from container %s...", container_id[:12])
@@ -160,20 +161,15 @@ def submit_with_files(link_id):
             files_dict['instructions.md'] = instructions_content
             logger.debug("  [ok] instructions.md (%s bytes)", len(instructions_content))
 
-        # Try to get claude session logs
-        claude_log_paths = [
-            '/tmp/claude_session.log',
-            '/root/.claude/logs/session.log',
-            '/home/coder/.claude/logs/session.log',
-            '/home/coder/.local/share/claude-code/session.log'
-        ]
-
-        for log_path in claude_log_paths:
-            log_content = DockerService.get_file_from_container(container_id, log_path)
-            if log_content:
-                files_dict['claude_session.log'] = log_content
-                logger.debug("  [ok] claude_session.log (%s bytes)", len(log_content))
-                break
+        # Pull Gemini CLI's real session transcripts (~/.gemini/tmp/*/chats/*.jsonl).
+        # Previously this looked for /tmp/claude_session.log and similar
+        # Claude-Code-CLI paths left over from before this project migrated
+        # to Gemini — Gemini CLI never wrote to any of those paths, so
+        # session_logs was always empty for every real submission. Fixed:
+        # see AGENT.md's session-log-capture-fix entry for how the real
+        # path/format was found.
+        gemini_chat_files = DockerService.get_gemini_chat_files(container_id)
+        logger.debug("  [ok] %s Gemini session transcript file(s)", len(gemini_chat_files))
 
     # If no solution.py found, create default
     if 'solution.py' not in files_dict:
@@ -195,9 +191,9 @@ def submit_with_files(link_id):
     # Parse and store Gemini session logs if available
     session_logs = []
 
-    if 'gemini_session.log' in files_dict:
+    if gemini_chat_files:
         try:
-            session_logs = SessionLogService.parse_session_log(files_dict['claude_session.log'])
+            session_logs = SessionLogService.parse_gemini_chat_sessions(gemini_chat_files)
 
             # Store parsed logs in session_logs table
             for log_entry in session_logs:

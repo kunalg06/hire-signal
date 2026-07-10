@@ -9,9 +9,163 @@ logger = logging.getLogger(__name__)
 class SessionLogService:
     """Service for parsing and analyzing Gemini session logs"""
 
+    # Auto-injected on every session's first turn by Gemini CLI itself, not
+    # something the candidate typed — must never be scored/displayed as a
+    # candidate prompt. Detected by prefix since the rest of the text
+    # (directory listing, date) varies per session.
+    _SESSION_CONTEXT_PREFIX = '<session_context>'
+
+    @staticmethod
+    def parse_gemini_chat_sessions(files: dict) -> List[dict]:
+        """
+        Parse ALL of a candidate's Gemini CLI session transcripts (one
+        .jsonl file per `gemini` invocation, as returned by
+        DockerService.get_gemini_chat_files()) into the flat, timestamp-
+        ordered entry list score_8_dimensions() already expects.
+
+        A candidate may invoke `gemini` more than once during an
+        assessment (each invocation is a separate session file) — entries
+        from every file are merged and sorted by timestamp so the
+        resulting transcript reads as one chronological conversation
+        regardless of how many times the CLI was (re)started.
+        """
+        all_entries = []
+        for content in files.values():
+            all_entries.extend(SessionLogService.parse_gemini_chat_session(content))
+        all_entries.sort(key=lambda e: e.get('timestamp') or '')
+        return all_entries
+
+    @staticmethod
+    def parse_gemini_chat_session(jsonl_content: str) -> List[dict]:
+        """
+        Parse ONE Gemini CLI session transcript file into structured
+        (prompt, response) entries.
+
+        File format (confirmed empirically against a real running
+        container — see AGENT.md's session-log-capture-fix entry, since
+        this is undocumented CLI internals, not a published spec): each
+        line is an independently-parseable JSON object, one of:
+          - a header line (has 'sessionId', no 'id'/'type') — ignored.
+          - a bare metadata update, e.g. {"$set": {"lastUpdated": ...}} —
+            ignored (no message content).
+          - {"$set": {"messages": [...]}} — wraps one or more real message
+            objects (used for the session's very first message).
+          - a bare message object: {"id", "timestamp", "type": "user" or
+            "gemini", "content", ...}.
+        A "user" message's `content` is a list of dicts — either
+        {"text": "..."} (something the candidate actually typed) or
+        {"functionResponse": {...}} (a tool-call result being fed back to
+        the model, e.g. a read_file result — not candidate-authored text).
+        A "gemini" message's `content` is a plain string; it can be empty
+        while the model is still "thinking"/making tool calls, with the
+        real visible reply arriving as a later, separate message.
+
+        Messages are paired chronologically: each genuine candidate text
+        prompt is matched with the next non-empty Gemini text reply that
+        follows it, mirroring the (prompt, response) shape
+        score_8_dimensions() already builds its scoring-evidence section
+        from. A trailing prompt with no reply yet (session ended mid-turn)
+        is dropped rather than persisted with an empty response.
+        """
+        entries = []
+        if not jsonl_content or not jsonl_content.strip():
+            return entries
+
+        lines = [l.strip() for l in jsonl_content.split('\n') if l.strip()]
+        if not lines:
+            return entries
+
+        # The header (first) line carries a 'kind' field: 'main' is a real
+        # candidate<->Gemini conversation; 'subagent' is Gemini's own
+        # internal tool-use sessions (e.g. spawning a sub-session to run
+        # `git status`/`git log` for its own context-gathering) — never
+        # something the candidate said or something to score/display.
+        # Confirmed empirically: these live in a nested chats/<id>/<id>.jsonl
+        # path alongside the real top-level chats/session-*.jsonl files.
+        try:
+            header = json.loads(lines[0])
+        except json.JSONDecodeError:
+            header = {}
+        if header.get('kind') != 'main':
+            return entries
+
+        messages_by_id = {}
+        message_order = []
+        for line in lines[1:]:
+            try:
+                obj = json.loads(line)
+            except json.JSONDecodeError:
+                continue
+
+            candidates = []
+            if isinstance(obj, dict) and 'id' in obj and 'type' in obj:
+                candidates = [obj]
+            elif isinstance(obj, dict) and isinstance(obj.get('$set', {}).get('messages'), list):
+                candidates = obj['$set']['messages']
+
+            for msg in candidates:
+                if not isinstance(msg, dict) or 'id' not in msg:
+                    continue
+                msg_id = msg['id']
+                if msg_id not in messages_by_id:
+                    message_order.append(msg_id)
+                messages_by_id[msg_id] = msg  # later occurrence wins (more complete)
+
+        ordered_messages = [messages_by_id[mid] for mid in message_order]
+
+        pending_prompt = None
+        pending_timestamp = None
+        pending_tool_calls = []  # accumulated across every gemini message in this turn,
+                                  # since real toolCalls happen on intermediate "thinking"
+                                  # messages (empty content), not the final reply itself —
+                                  # confirmed empirically: the final reply message rarely
+                                  # carries its own toolCalls.
+        for msg in ordered_messages:
+            msg_type = msg.get('type')
+            timestamp = msg.get('timestamp')
+
+            if msg_type == 'user':
+                text_parts = [
+                    item.get('text', '') for item in (msg.get('content') or [])
+                    if isinstance(item, dict) and item.get('text')
+                ]
+                text = ' '.join(text_parts).strip()
+                if not text or text.startswith(SessionLogService._SESSION_CONTEXT_PREFIX):
+                    continue  # tool-result turn or the auto-injected context message
+                pending_prompt = text
+                pending_timestamp = timestamp
+                pending_tool_calls = []
+
+            elif msg_type == 'gemini' and pending_prompt is not None:
+                pending_tool_calls.extend(msg.get('toolCalls') or [])
+                response = msg.get('content')
+                if not isinstance(response, str) or not response.strip():
+                    continue  # "thinking"/tool-calling turn with no visible reply yet
+                file_changes = sum(
+                    1 for tc in pending_tool_calls
+                    if isinstance(tc, dict)
+                    and any(k in str(tc.get('name', '')).lower() for k in ('write', 'edit', 'replace'))
+                )
+                entries.append({
+                    'timestamp': timestamp or pending_timestamp,
+                    'interaction_type': 'gemini_cli',
+                    'prompt': pending_prompt,
+                    'response_summary': response.strip(),
+                    'file_changes_count': file_changes,
+                    'raw_json': json.dumps({'prompt': pending_prompt, 'response': response.strip()}),
+                })
+                pending_prompt = None
+                pending_timestamp = None
+                pending_tool_calls = []
+
+        return entries
+
     @staticmethod
     def parse_session_log(log_content: str) -> List[dict]:
-        """Parse Gemini session log into structured entries"""
+        """Parse Gemini session log into structured entries. Legacy
+        plaintext-transcript fallback, kept as a defensive path — the
+        active capture path is parse_gemini_chat_sessions() above, which
+        targets Gemini CLI's real .jsonl session-file format."""
         entries = []
 
         if not log_content or not log_content.strip():
