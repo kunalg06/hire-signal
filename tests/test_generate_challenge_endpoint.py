@@ -46,14 +46,17 @@ def db(client):
     return challenges_module.db_service
 
 
-def make_llm_response():
-    payload = {
+def make_llm_response_dict():
+    return {
         "title": "Fix the Rate Limiter",
         "description": "A sliding-window limiter leaks memory under load.",
         "evaluation_criteria": "Fixes leak; adds test; explains root cause",
         "starter_code": "def limiter(): pass",
     }
-    return json.dumps(payload)
+
+
+def make_llm_response():
+    return json.dumps(make_llm_response_dict())
 
 
 def mock_chat(monkeypatch, payload, raises=None):
@@ -258,3 +261,52 @@ def test_persist_failure_still_returns_200_with_null_challenge_id(
     assert body["challenge_id"] is None
     assert body["persisted"] is False
     assert body["title"] == "Fix the Rate Limiter"
+
+
+# ── evaluation_criteria 8-dimension format check (party-mode review, 2026-07-10) ──
+# Warn-only, never a retry trigger or a 500: nothing downstream parses
+# evaluation_criteria structurally (verified via repo-wide grep before this
+# was added), so format drift is a content-quality signal to catch in logs,
+# not a correctness failure worth retrying or rejecting.
+
+def test_evaluation_criteria_wrong_item_count_logs_warning_but_still_succeeds(client, monkeypatch, caplog):
+    import logging
+    payload = make_llm_response_dict()
+    payload["evaluation_criteria"] = "Only one; Two; Three"  # 3 items, not 8
+    mock_chat(monkeypatch, json.dumps(payload))
+
+    with caplog.at_level(logging.WARNING):
+        resp = client.post(ENDPOINT, json=VALID_PAYLOAD)
+
+    assert resp.status_code == 200
+    assert any("evaluation_criteria has 3 items" in r.message for r in caplog.records)
+
+
+def test_evaluation_criteria_missing_dimension_brackets_logs_warning(client, monkeypatch, caplog):
+    import logging
+    payload = make_llm_response_dict()
+    # 8 items (correct count) but none carry the [Dimension] bracket prefix
+    payload["evaluation_criteria"] = "; ".join(f"criterion {i}" for i in range(8))
+    mock_chat(monkeypatch, json.dumps(payload))
+
+    with caplog.at_level(logging.WARNING):
+        resp = client.post(ENDPOINT, json=VALID_PAYLOAD)
+
+    assert resp.status_code == 200
+    assert any("missing/out-of-order dimension bracket labels" in r.message for r in caplog.records)
+
+
+def test_evaluation_criteria_correct_format_logs_no_warning(client, monkeypatch, caplog):
+    import logging
+    from app.services.evaluation_service import EvaluationService
+    payload = make_llm_response_dict()
+    payload["evaluation_criteria"] = "; ".join(
+        f"[{label}] does well at this" for label in EvaluationService.DIMENSION_LABELS
+    )
+    mock_chat(monkeypatch, json.dumps(payload))
+
+    with caplog.at_level(logging.WARNING):
+        resp = client.post(ENDPOINT, json=VALID_PAYLOAD)
+
+    assert resp.status_code == 200
+    assert not any("evaluation_criteria" in r.message for r in caplog.records)

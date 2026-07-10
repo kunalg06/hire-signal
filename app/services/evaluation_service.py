@@ -36,6 +36,15 @@ class EvaluationService:
         "select":      55,
     }
 
+    # ── Human-readable dimension labels, in DIMENSION_WEIGHTS order ────────
+    # Shared by generate_challenge()'s prompt and its evaluation_criteria
+    # format check, so both always agree on the same 8 names/order.
+    DIMENSION_LABELS = [
+        "Problem Decomposition", "First-Principles Thinking", "Creative Problem Solving",
+        "Iteration Quality", "Debugging with AI", "Architecture Decisions",
+        "Communication Clarity", "Token Efficiency",
+    ]
+
     # ── Gemini response_schema for score_8_dimensions() ───────────────────
     _SCORING_RESPONSE_SCHEMA = {
         "type": "OBJECT",
@@ -64,9 +73,18 @@ class EvaluationService:
     _CHALLENGE_RESPONSE_SCHEMA = {
         "type": "OBJECT",
         "properties": {
-            "title": {"type": "STRING"},
-            "description": {"type": "STRING"},
-            "evaluation_criteria": {"type": "STRING"},
+            "title": {"type": "STRING", "description": "Concise, action-oriented title grounded in the given problem context"},
+            "description": {"type": "STRING", "description": "Full scenario grounded in the given problem context, challenge type, and skill area"},
+            "evaluation_criteria": {
+                "type": "STRING",
+                "description": (
+                    "Exactly 8 semicolon-separated criteria, one per AI-collaboration "
+                    "dimension (Problem Decomposition, First-Principles Thinking, Creative "
+                    "Problem Solving, Iteration Quality, Debugging with AI, Architecture "
+                    "Decisions, Communication Clarity, Token Efficiency), each prefixed with "
+                    "its dimension name in brackets"
+                ),
+            },
             "starter_code": {"type": "STRING"},
         },
         "required": ["title", "description", "evaluation_criteria", "starter_code"],
@@ -144,6 +162,34 @@ class EvaluationService:
 
         # Nothing recovered — raise the original (unfenced) parse failure.
         return json.loads(response_text)
+
+    @staticmethod
+    def _check_dimension_criteria_format(evaluation_criteria: str) -> None:
+        """Warn (never raise/retry) if evaluation_criteria doesn't look like
+        the requested 'exactly 8, one per dimension, [Bracket]-prefixed'
+        format. This is deliberately non-blocking: the field is prose shown
+        to employers and interpolated as text into the scoring prompt,
+        never parsed structurally anywhere in this codebase — so drift here
+        is a content-quality issue to catch in logs, not a correctness bug
+        worth spending a retry attempt on."""
+        items = [item.strip() for item in evaluation_criteria.split(';') if item.strip()]
+        if len(items) != len(EvaluationService.DIMENSION_LABELS):
+            logger.warning(
+                "generate_challenge(): evaluation_criteria has %d items, expected %d "
+                "(one per dimension) — content: %.200s",
+                len(items), len(EvaluationService.DIMENSION_LABELS), evaluation_criteria,
+            )
+            return
+
+        missing_labels = [
+            label for label, item in zip(EvaluationService.DIMENSION_LABELS, items)
+            if f"[{label}]" not in item
+        ]
+        if missing_labels:
+            logger.warning(
+                "generate_challenge(): evaluation_criteria missing/out-of-order "
+                "dimension bracket labels: %s", missing_labels,
+            )
 
     @staticmethod
     def extract_container_files(container_id: str,
@@ -498,10 +544,15 @@ Respond ONLY with valid JSON — no markdown fences, no prose:
             'game_logic':        'from dataclasses import dataclass\nfrom typing import List, Optional\nimport random',
         }.get(skill_area, 'import json\nfrom typing import Optional')
 
+        dimension_list = "\n".join(
+            f"{i+1}. {label}" for i, label in enumerate(EvaluationService.DIMENSION_LABELS)
+        )
+
         generation_prompt = f"""You are a senior engineering hiring manager at a top technology company.
 Generate a realistic, market-relevant coding challenge for a technical interview assessment.
 
-## Challenge Parameters
+## Challenge Parameters — every field you generate below MUST be grounded in
+## ALL FOUR of these inputs, not a generic or loosely-related scenario:
 - Problem Context: {problem_statement}
 - Difficulty: {difficulty}
   - easy = junior level (1-2 years exp), straightforward implementation
@@ -528,13 +579,22 @@ puzzles or abstract algorithms. The problem should test engineering judgment and
 - For bug_fix type: bugs must already be present in the code — do NOT add comments like "bug here"
 - For feature_extension type: TODO comments only at exact insertion points
 
+## Evaluation Criteria Requirements
+This challenge will be scored across exactly these 8 AI-collaboration dimensions:
+{dimension_list}
+For EACH dimension, write ONE specific, measurable criterion describing what "doing
+well" looks like FOR THIS SPECIFIC CHALLENGE — not a generic definition of the
+dimension. Ground every criterion in the Problem Context, Challenge Type, and Skill
+Area above, so a reader recognizes exactly what this particular challenge is testing
+for that dimension.
+
 ## Output Format
 Respond ONLY with valid JSON — no markdown fences, no prose before or after:
 {{
-  "title": "concise challenge title (max 60 chars, action-oriented)",
-  "description": "full scenario with business context, exact deliverable, constraints, and success criteria (200-350 words)",
-  "evaluation_criteria": "semicolon-separated list of 4-6 specific measurable criteria",
-  "starter_code": "complete Python file ready to be placed in the candidate workspace"
+  "title": "concise challenge title (max 60 chars, action-oriented), clearly reflecting the Problem Context above",
+  "description": "full scenario with business context, exact deliverable, constraints, and success criteria (200-350 words) — directly grounded in the Problem Context, Challenge Type, and Skill Area above",
+  "evaluation_criteria": "EXACTLY 8 semicolon-separated criteria, one per dimension in the order listed above, each prefixed with its dimension name in brackets, e.g. '[Problem Decomposition] ...; [First-Principles Thinking] ...; [Creative Problem Solving] ...; [Iteration Quality] ...; [Debugging with AI] ...; [Architecture Decisions] ...; [Communication Clarity] ...; [Token Efficiency] ...'",
+  "starter_code": "complete Python file ready to be placed in the candidate workspace, matching the Challenge Type and Skill Area requirements above"
 }}"""
 
         def _validate_challenge_fields(challenge: dict) -> None:
@@ -542,6 +602,17 @@ Respond ONLY with valid JSON — no markdown fences, no prose before or after:
             missing = [f for f in required_fields if f not in challenge]
             if missing:
                 raise ValueError(f"Missing fields in Gemini response: {missing}")
+
+            # Warn-only, not a retry trigger: evaluation_criteria is prose
+            # shown to employers and interpolated as text into the scoring
+            # prompt (see score_8_dimensions()) — nothing anywhere parses it
+            # structurally (verified via repo-wide grep), so a malformed
+            # count/format here degrades the employer-facing text quality
+            # but breaks nothing downstream. Retrying wouldn't fix a
+            # cosmetic drift and would just burn latency/cost for no
+            # correctness gain (party-mode review, 2026-07-10).
+            EvaluationService._check_dimension_criteria_format(
+                challenge.get('evaluation_criteria', ''))
 
         try:
             return EvaluationService._call_llm_for_json(
