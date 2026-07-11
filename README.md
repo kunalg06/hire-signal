@@ -145,6 +145,7 @@ Thresholds are **Python-enforced** — the LLM's own claimed composite/recommend
 ### Prerequisites
 
 - Python 3.11+
+- [uv](https://docs.astral.sh/uv/getting-started/installation/) — fast Python package/venv manager (`pip install uv` if you don't have it, or see the install link)
 - A [Gemini](https://aistudio.google.com/apikey) API key (LLM calls are routed through the Gemini API)
 - Docker (**optional** — the app runs and the employer dashboard is fully usable without it; only live candidate containers require it)
 
@@ -154,22 +155,34 @@ Thresholds are **Python-enforced** — the LLM's own claimed composite/recommend
 git clone https://github.com/kunalg06/hire-signal.git
 cd hire-signal
 
-# Install dependencies
-pip install -r requirements.txt
+# Create an isolated virtual environment
+uv venv
+
+# Install the EXACT dependency versions this project was built/tested against
+# (requirements.txt is fully pinned via `uv pip freeze` — this is what keeps a
+# `git pull` later from silently picking up a newer, untested package version)
+uv pip sync requirements.txt --python .venv
 
 # Configure environment
 echo "GEMINI_API_KEY=your-gemini-key-here" > .env
 
-# Run the platform
-python run.py
+# Run the platform (Windows)
+.venv\Scripts\python.exe run.py
+# Run the platform (macOS/Linux)
+.venv/bin/python run.py
 ```
 
 Open `http://localhost:8000` in your browser.
 
+> If `uv pip sync` fails with a TLS/certificate error (common behind a corporate antivirus that intercepts HTTPS, e.g. Norton's SSL-scanning proxy), retry with `uv pip sync requirements.txt --python .venv --system-certs` — this trusts your OS's own certificate store instead of uv's bundled one, which is not a security downgrade (unlike disabling verification), just a different valid trust source.
+
+Adding/removing a dependency later: `uv pip install <package> --python .venv` (or uninstall), then regenerate the full pin with `uv pip freeze --python .venv > requirements.txt`.
+
 ### Running the test suite
 
 ```bash
-python -m pytest tests/ -v
+.venv\Scripts\python.exe -m pytest tests/ -v   # Windows
+.venv/bin/python -m pytest tests/ -v           # macOS/Linux
 ```
 
 199 tests, no API key or Docker daemon required — every LLM/Docker call is mocked.
@@ -177,7 +190,8 @@ python -m pytest tests/ -v
 ### Running the performance benchmark
 
 ```bash
-python scripts/benchmark.py
+.venv\Scripts\python.exe scripts/benchmark.py   # Windows
+.venv/bin/python scripts/benchmark.py           # macOS/Linux
 ```
 
 Real (non-mocked) numbers: SQLite throughput, Flask endpoint latency, and live Gemini API calls — requires `GEMINI_API_KEY`; Docker section auto-skips if the daemon isn't reachable. See [Performance Metrics](#performance-metrics-local-testing) below for the last measured run.
@@ -190,7 +204,8 @@ Build the candidate-container image and run the app normally — this is the act
 cd docker
 docker build -f Dockerfile.codeserver -t coding-platform-student:latest .
 cd ..
-python run.py
+.venv\Scripts\python.exe run.py   # Windows
+.venv/bin/python run.py           # macOS/Linux
 ```
 
 ---
@@ -300,7 +315,7 @@ hire-signal/
 │   │   ├── session_log_service.py  # Gemini interaction log parsing
 │   │   └── management_service.py   # System monitoring
 │   ├── models/
-│   │   └── database.py         # SQLite schema (10 tables)
+│   │   └── database.py         # SQLite schema (11 tables)
 │   └── utils/
 │       └── helpers.py          # ID generation, validation, rate limiting
 ├── templates/
@@ -316,7 +331,7 @@ hire-signal/
 ├── AGENT.md                    # Session continuity for AI-assisted dev — read this first
 ├── CLAUDE.md                   # Dev guide: architecture constraints, debugging, customization
 ├── run.py                      # Flask entry point
-└── requirements.txt
+└── requirements.txt             # Fully pinned dependency versions (`uv pip freeze` output)
 ```
 
 ---
