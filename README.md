@@ -155,8 +155,12 @@ Thresholds are **Python-enforced** — the LLM's own claimed composite/recommend
 git clone https://github.com/kunalg06/hire-signal.git
 cd hire-signal
 
-# Create an isolated virtual environment
-uv venv
+# Create an isolated virtual environment, using an already-installed system
+# Python rather than one uv downloads/manages itself (--no-managed-python) —
+# on some Windows setups uv's own managed CPython build hits a native
+# OPENSSL_Uplink crash the moment any TLS connection is made (Gemini calls,
+# Docker SDK calls), which a system-installed Python doesn't have
+uv venv --no-managed-python
 
 # Install the EXACT dependency versions this project was built/tested against
 # (requirements.txt is fully pinned via `uv pip freeze` — this is what keeps a
@@ -175,6 +179,8 @@ echo "GEMINI_API_KEY=your-gemini-key-here" > .env
 Open `http://localhost:8000` in your browser.
 
 > If `uv pip sync` fails with a TLS/certificate error (common behind a corporate antivirus that intercepts HTTPS, e.g. Norton's SSL-scanning proxy), retry with `uv pip sync requirements.txt --python .venv --system-certs` — this trusts your OS's own certificate store instead of uv's bundled one, which is not a security downgrade (unlike disabling verification), just a different valid trust source.
+>
+> If a Gemini call (or anything touching TLS) crashes the process outright with `OPENSSL_Uplink ... no OPENSSL_Applink` instead of raising a normal Python exception, your `.venv` was built from uv's own managed Python build rather than your system's — delete `.venv` and recreate it with `uv venv --no-managed-python` as shown above.
 
 Adding/removing a dependency later: `uv pip install <package> --python .venv` (or uninstall), then regenerate the full pin with `uv pip freeze --python .venv > requirements.txt`.
 
