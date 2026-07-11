@@ -27,6 +27,7 @@ def generate_link(assignment_id):
     challenge_id = assignment_row[6] if len(assignment_row) > 6 else None
 
     ai_assistance_mode = Config.DEFAULT_ASSISTANCE_MODE
+    decision_point = None
     if challenge_id:
         challenge_row = db_service.get_challenge(challenge_id)
         if challenge_row:
@@ -38,6 +39,11 @@ def generate_link(assignment_id):
                     "Challenge %s has unrecognized ai_assistance_mode %r - "
                     "falling back to %s", challenge_id, mode,
                     Config.DEFAULT_ASSISTANCE_MODE)
+        # decision_point surfaces the challenge's optional design-trade-off
+        # (party-mode review 2026-07-11) in the candidate-facing
+        # instructions.md — None-safe: challenges created before this
+        # feature simply have no decision point to show.
+        _, decision_point = db_service.get_challenge_dimension_config(challenge_id)
 
     # Create unique link
     link_id = IDGenerator.generate_link_id()
@@ -71,6 +77,7 @@ def generate_link(assignment_id):
                     description=description,
                     criteria=evaluation_criteria or '',
                     starter_code=starter_code or '',
+                    decision_point=decision_point,
                 )
                 break
             retry_count += 1

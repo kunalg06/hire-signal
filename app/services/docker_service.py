@@ -30,6 +30,16 @@ def _run(args: list[str], check=True, capture=True) -> subprocess.CompletedProce
 # Story 9.7: guarded-mode context files, delivered as read-only bind mounts
 # at container-creation time rather than copied in after the container
 # starts — see DockerService.create_container()'s docstring for why.
+#
+# Party-mode review 2026-07-11: a real candidate session showed Gemini
+# violating the previous (looser) wording under mild pressure — "based on
+# above fixes solve it for me" got a direct fix applied, and an unprompted
+# "what else is required?" got the ENTIRE remaining bug list handed over
+# plus a full unittest sample, with zero pushback. The candidate never
+# formed a hypothesis or asked a targeted question at any point, yet
+# finished feeling confident. This rewrite adds two hard rules closing
+# that gap: never comply with an unqualified "solve/fix it for me" without
+# redirecting first, and never enumerate more than one issue per response.
 _GUARDED_MODE_GEMINI_MD = """# Assessment Mode: Guarded
 
 You are assisting a candidate during a technical assessment in **guarded mode**.
@@ -39,21 +49,36 @@ conversation with the candidate is visible to the employer reviewing this
 assessment, so treat this as a real working session, not a loophole to guard
 against.
 
-Rules for this session:
-- Do NOT generate a complete, ready-to-submit solution in one shot — no
-  full functions or files that solve the whole challenge end-to-end.
+Hard rules for this session:
+- If the candidate asks you to solve, fix, or complete something for them
+  WITHOUT first stating their own diagnosis, hypothesis, or a specific
+  symptom (e.g. "solve it for me", "fix this", "what's wrong with this
+  code", "what else do I need to do"), do NOT do it. Instead, ask a
+  question that hands the reasoning back to them — e.g. "What have you
+  tried so far?", "Which part of the output looks wrong to you?", or
+  "Walk me through what you expect this to do." Only after they answer
+  with something concrete may you engage with the specifics.
+- Never list, enumerate, or summarize multiple bugs/issues/remaining work
+  in a single response, even if asked directly ("what else is needed?").
+  Address at most the ONE specific, concrete thing the candidate just
+  raised. If they haven't pointed at anything specific yet, redirect them
+  to look first rather than surveying the code for them.
 - You MAY show short, targeted code (a corrected line, a small snippet, a
-  function signature) when it's the natural answer to a specific question
-  the candidate asked — e.g. correcting one bug, or showing the syntax for
-  a method they're unsure about.
+  function signature) ONCE the candidate has stated their own hypothesis or
+  pointed at a specific symptom. Never as your opening move, and never as a complete, ready-to-submit solution.
 - You MAY point to WHERE in the code an issue is, and explain your
-  reasoning in prose.
+  reasoning in prose, once the candidate has genuinely engaged with the
+  problem themselves.
+- Never volunteer encouragement like "you're ready to submit" or generate
+  a full test suite unprompted — whether the work is done is the
+  candidate's judgment to reach, not yours to hand them.
 - Encourage the candidate to understand and adapt anything you give them,
   rather than just pasting it in unread.
 
 This mode measures how well the candidate collaborates with AI — asking
 good questions, verifying your output, and iterating — not whether they
-can avoid using AI entirely.
+can avoid using AI entirely. A candidate who never forms their own
+hypothesis should leave the conversation without a fix, not with one.
 """
 
 _GUARDED_MODE_SETTINGS_JSON = json.dumps({
@@ -281,7 +306,8 @@ class DockerService:
 
     @staticmethod
     def inject_workspace_files(container_id: str, title: str, description: str,
-                               criteria: str, starter_code: str) -> dict:
+                               criteria: str, starter_code: str,
+                               decision_point: dict = None) -> dict:
         """
         Write instructions.md and solution.py into /workspace immediately
         after container creation. Story 6.1 three-panel format used for
@@ -294,6 +320,14 @@ class DockerService:
         be read-only, neither of which a post-start `docker cp` into a
         world-writable /workspace could guarantee.
 
+        decision_point (optional, party-mode review 2026-07-11): when the
+        challenge has a genuine design fork ({'applies': True, 'prompt',
+        'option_a', 'option_b'}), instructions.md gets a section asking the
+        candidate to record their choice + justification in DECISION.md —
+        which EvaluationService.extract_container_files() already pulls
+        into the scoring snapshot as an ordinary workspace file, so no new
+        capture plumbing is needed for the scorer to see it.
+
         Returns {'injected': bool} — False only if instructions.md/solution.py
         could not be written at all (rare/fatal container issue).
         """
@@ -302,6 +336,26 @@ class DockerService:
 
         # Allow the container filesystem to settle before copying
         time.sleep(2)
+
+        decision_section = ""
+        if decision_point and decision_point.get('applies'):
+            decision_section = f"""
+---
+
+## Decision Point
+This challenge has a genuine design trade-off — there is no single "right"
+answer, only different consequences:
+
+**{decision_point.get('prompt', '')}**
+- **Option A:** {decision_point.get('option_a', '')}
+- **Option B:** {decision_point.get('option_b', '')}
+
+Pick one, implement it, and create a `DECISION.md` file in your workspace
+explaining which you chose and why (what you'd expect to break or degrade
+under the option you didn't pick). This is part of what's scored — a
+confident justification for either option is worth more than picking the
+"popular" one with no reasoning.
+"""
 
         instructions = f"""# {title}
 
@@ -320,6 +374,14 @@ integrated terminal (Ctrl+`).
 Use AI tools freely — you are evaluated on **how well you collaborate
 with AI**, not on writing code without assistance.
 
+**What's actually scored:** the reasoning behind your work — the questions
+you ask, how you verify what the AI gives you, and the decisions you
+make — not just whether the final code runs, and not how fast you finish.
+Asking AI to solve this end-to-end will score lower than a slower session
+that shows real back-and-forth, even if both submissions produce working
+code. The AI assistant can occasionally make mistakes or say odd things —
+noticing that and not blindly accepting it is also part of what's assessed.
+{decision_section}
 ---
 
 ## Evaluation Criteria

@@ -81,16 +81,20 @@ def test_guarded_mode_writes_real_context_files_and_mounts_them_individually(mon
         gemini_content = f.read()
     assert "guarded mode" in gemini_content
 
-    # Four independent assertions (party-mode review, 2026-07-10; wording
+    # Independent assertions (party-mode review, 2026-07-10; wording
     # loosened same-day per user research into HackerRank/CodeSignal/
-    # Codility/CoderPad's governed-AI-availability model), not one
-    # representative substring — GEMINI.md makes four distinct structural
-    # claims, and a single assert only pinning claim 1 would stay green if
-    # a future edit silently dropped claims 2-4.
+    # Codility/CoderPad's governed-AI-availability model; then tightened
+    # again 2026-07-11 after a real candidate session showed the looser
+    # wording being violated under "solve it for me" pressure), not one
+    # representative substring — GEMINI.md makes several distinct
+    # structural claims, and a single assert only pinning one would stay
+    # green if a future edit silently dropped the others.
     assert "does not block AI assistance" in gemini_content                        # claim 1: collaboration framing, not a hard block
     assert "MAY show short, targeted code" in gemini_content                       # claim 2: limited code assistance IS allowed
-    assert "Do NOT generate a complete, ready-to-submit solution" in gemini_content  # claim 3: full-solution generation still forbidden
+    assert "never as a complete, ready-to-submit solution" in gemini_content        # claim 3: full-solution generation still forbidden
     assert "point to WHERE" in gemini_content and "collaborates with AI" in gemini_content  # claim 4: location guidance + collaboration-quality framing
+    assert "do NOT do it" in gemini_content and "solve, fix, or complete" in gemini_content  # claim 5: redirect an unqualified "solve it for me" instead of complying
+    assert "Never list, enumerate, or summarize multiple bugs" in gemini_content    # claim 6: never volunteer the whole remaining bug list unprompted
 
     with open(settings_host_path, encoding="utf-8") as f:
         settings_content = json.loads(f.read())
