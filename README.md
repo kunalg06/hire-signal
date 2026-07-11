@@ -20,6 +20,32 @@ Employers post a challenge. Candidates solve it in an isolated browser-based VS 
 
 ---
 
+## Screenshots
+
+### Employer — Challenge Creation
+
+| Challenge Generation | Challenge Catalog | Candidate Link Generated |
+|---|---|---|
+| ![Challenge generation page](img/challenge%20generation%20page.png) | ![Challenge catalog](img/challenge%20catelog.png) | ![Challenge generated link](img/Challenge_generted_Link.png) |
+
+### Candidate Experience
+
+![Code-server environment](img/code-server%20environemnt.png)
+
+### Employer — Results & Scoring
+
+| Candidate List | 8-Dimension Radar Chart | Recruiter Scoring View |
+|---|---|---|
+| ![Challenge candidate page](img/challenge%20candidate%20page.png) | ![Scoring page spider graph](img/scoring%20pag%20spider%20graph.png) | ![Recruiter 8-dimension scoring page](img/recruiter%208%20dimension%20scoring%20page.png) |
+
+| Score Rationale | AI Feedback | AI Session Log (Recruiter View) |
+|---|---|---|
+| ![Score reason page](img/score%20reason%20page.png) | ![AI feedback](img/AI%20feedback.png) | ![AI assistance session log view for recruiter](img/ai%20assitance%20session%20log%20view%20for%20recruiter.png) |
+
+![Multiple candidate scoring view](img/multiple%20candate%20scoring%20view.png)
+
+---
+
 ## How It Works
 
 ```
