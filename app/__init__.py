@@ -1,5 +1,6 @@
 import logging
 import os
+import sys
 from dotenv import load_dotenv
 
 # LOAD .ENV FIRST (before any other imports)
@@ -28,6 +29,15 @@ def create_app(config_name=None):
     # directly and never touches run.py, leaving the root logger at the
     # default WARNING level with every logger.info()/debug() dropped silently.
     if not logging.root.handlers:
+        # Mirrors run.py's stdout/stderr UTF-8 reconfigure (party-mode
+        # review 2026-07-11) for the `flask run` path, which never executes
+        # run.py's copy of this guard.
+        for _stream in (sys.stdout, sys.stderr):
+            if hasattr(_stream, 'reconfigure'):
+                try:
+                    _stream.reconfigure(encoding='utf-8', errors='replace')
+                except Exception:
+                    pass
         logging.basicConfig(
             level=logging.INFO,
             format='%(asctime)s %(name)s %(levelname)s %(message)s'
