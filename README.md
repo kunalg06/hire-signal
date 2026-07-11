@@ -5,7 +5,7 @@
 ![Python](https://img.shields.io/badge/python-3.11+-blue.svg)
 ![Flask](https://img.shields.io/badge/flask-3.0-green.svg)
 ![Status](https://img.shields.io/badge/status-all%20epics%20complete-brightgreen.svg)
-![Tests](https://img.shields.io/badge/tests-64%20passing-brightgreen.svg)
+![Tests](https://img.shields.io/badge/tests-199%20passing-brightgreen.svg)
 ![AI Beta](https://img.shields.io/badge/AI%20scoring-experimental-orange.svg)
 
 ---
@@ -14,7 +14,7 @@
 
 Coding interviews have changed. Candidates now use AI tools on the job — and the best ones know *how* to collaborate with AI effectively, not just write code from scratch. hire-signal evaluates that skill.
 
-Employers post a challenge. Candidates solve it in an isolated browser-based VS Code environment with Claude Code CLI access. The platform records every Claude interaction, extracts the final workspace, and evaluates the candidate across **8 AI-collaboration dimensions** — producing a structured hire recommendation.
+Employers post a challenge. Candidates solve it in an isolated browser-based VS Code environment with Gemini CLI access. The platform records every Gemini interaction, extracts the final workspace, and evaluates the candidate across **8 AI-collaboration dimensions** — producing a structured hire recommendation.
 
 > **AI Beta Notice:** Scores are experimental signals. Human judgment holds final authority. Always review before making hiring decisions.
 
@@ -44,6 +44,12 @@ Employers post a challenge. Candidates solve it in an isolated browser-based VS 
 
 ![Multiple candidate scoring view](img/multiple%20candate%20scoring%20view.png)
 
+### Employer — Compare Candidates
+
+| Candidate Comparison (1) | Candidate Comparison (2) |
+|---|---|
+| ![Candidate comparison 1](img/candidate%20comparison%20-%201.png) | ![Candidate comparison 2](img/candidate%20comparison%20-%202.png) |
+
 ---
 
 ## How It Works
@@ -54,11 +60,11 @@ Employer creates challenge
 Generates unique link per candidate
         ↓
 Candidate codes in isolated Docker container
-(browser VS Code + Claude Code CLI access)
+(browser VS Code + Gemini CLI access)
         ↓
-On submit: full workspace snapshot extracted
+On submit: full workspace snapshot + AI session transcript extracted
         ↓
-8-dimension evaluation via Claude
+8-dimension evaluation via Gemini
         ↓
 Hire recommendation: strong_hire / hire / select / pass
         ↓
@@ -108,25 +114,29 @@ Thresholds are **Python-enforced** — the LLM's own claimed composite/recommend
 
 ### AI Assistance Modes
 
-- **Unguarded** — Claude can give full solutions. Employer assesses *how* the candidate uses AI.
-- **Guarded** — Claude Code CLI is asked (via an injected `CLAUDE.md`) to restrict itself to conceptual guidance. **This is honor-system enforcement only** — a candidate with shell access can bypass it. Accepted as current scope; see `docs/PROJECT_REQUIREMENTS.md`.
+- **Unguarded** — Gemini can give full solutions. Employer assesses *how* the candidate uses AI.
+- **Guarded** — governed AI availability, not a hard block (HackerRank-style): Gemini CLI is asked (via a read-only bind-mounted `~/.gemini/GEMINI.md`) to redirect an unqualified "solve it for me" with a diagnostic question, allow short targeted code only once the candidate states their own hypothesis, and never volunteer more than one issue per response. **Enforcement of the wording itself is honor-system** — a candidate with shell access can relocate `$HOME` to dodge the mounted file; the mounted file itself is kernel-enforced read-only. Accepted as current scope; see `docs/PROJECT_REQUIREMENTS.md`.
 
 ---
 
 ## Features
 
 - **AI challenge generation** — describe a scenario, get a market-aligned coding challenge with starter code and evaluation rubric
+- **Per-challenge dimension applicability** — the generator declares which of the 8 dimensions a given challenge can actually produce evidence for (e.g. a pure-correctness bug fix has no real architecture decision to score); the composite is renormalized over only the applicable dimensions instead of averaging in one the challenge never offered
+- **Optional decision-point challenges** — a genuine design trade-off (two named approaches, no verdict) baked into the challenge itself; the candidate implements one and justifies it in `DECISION.md`, which flows into scoring as ordinary workspace evidence
 - **Challenge catalog** — review, publish, and reuse challenges across assessments; 10 curated challenges seeded across the type/skill matrix
-- **Isolated candidate environments** — one Docker container per candidate with browser VS Code + Claude Code CLI (graceful degradation without Docker — links still generate)
+- **Isolated candidate environments** — one Docker container per candidate with browser VS Code + Gemini CLI (graceful degradation without Docker — links still generate)
 - **Full workspace capture** — entire `/workspace` extracted before container cleanup, with a text-only filter and 50KB cap
-- **8-dimension evaluation** — single Claude call scores all dimensions with per-dimension rationales; all 8 keys always present even on a partial LLM response
+- **AI conversation timeline** — the candidate's real Gemini CLI session transcript (prompts, responses, file-change counts) is captured and shown to the employer alongside the score, not just the final code
+- **Raw AI token-usage telemetry** — mode-stamped, informational-only token count per submission, displayed next to the scored Token Efficiency dimension — never a gate, never folded into the composite
+- **8-dimension evaluation** — single Gemini call scores all dimensions with per-dimension rationales; all 8 keys always present even on a partial LLM response; a scoring failure is flagged for manual review rather than silently rendered as a real 0
 - **Employer dashboard** — 5-tab UI: Generate · Catalog · Link · Results · Compare
 - **SVG radar chart** — visual 8-dimension profile per candidate
 - **Side-by-side comparison** — overlaid radar + butterfly chart for two candidates
-- **Human override & flag workflow** — flag any submission for review; override any hire recommendation with a required rationale; every override permanently logged to an append-only calibration table
+- **Human override & flag workflow** — flag any submission for review; override any hire recommendation with a required rationale; every override/flag permanently logged to an append-only calibration table
 - **Visibility floor** — un-evaluated candidates always sort last, never hidden
 - **Employer preview** — see the candidate-facing view of a challenge without spinning up Docker
-- **64-test suite** — 8-dimension scoring, workspace extraction, hire-threshold boundaries, candidate ranking, and challenge generation, all runnable with no LLM key or Docker daemon
+- **199-test suite** — 8-dimension scoring, dimension applicability, workspace extraction, hire-threshold boundaries, candidate ranking, session-log/token-usage capture, and challenge generation, all runnable with no LLM key or Docker daemon
 
 ---
 
@@ -162,7 +172,7 @@ Open `http://localhost:8000` in your browser.
 python -m pytest tests/ -v
 ```
 
-64 tests, no API key or Docker daemon required — every LLM/Docker call is mocked.
+199 tests, no API key or Docker daemon required — every LLM/Docker call is mocked.
 
 ### Running the performance benchmark
 
@@ -218,7 +228,7 @@ POST /api/generate-link/{assignment_id}
 
 ### 4. Candidate Submits
 
-Candidate accesses their isolated VS Code environment, works with Claude, and submits. The platform captures the full workspace and starts evaluation in the background — the candidate's browser polls for results every 3 seconds.
+Candidate accesses their isolated VS Code environment, works with Gemini, and submits. The platform captures the full workspace and starts evaluation in the background — the candidate's browser polls for results every 3 seconds.
 
 ### 5. View Results
 
@@ -295,7 +305,7 @@ hire-signal/
 │       └── helpers.py          # ID generation, validation, rate limiting
 ├── templates/
 │   └── frontend.html           # Employer dashboard (5-tab SPA, single file)
-├── tests/                      # 64 pytest tests, no LLM key or Docker daemon required
+├── tests/                      # 199 pytest tests, no LLM key or Docker daemon required
 ├── docker/                     # Dockerfiles (Dockerfile.codeserver is the one that matters)
 ├── docs/                       # Architecture, API reference, requirements, folder structure
 ├── scripts/
@@ -313,7 +323,7 @@ hire-signal/
 
 ## Database Schema
 
-10 SQLite tables, auto-created on startup (`CREATE TABLE IF NOT EXISTS` + guarded `ALTER TABLE` migrations):
+11 SQLite tables, auto-created on startup (`CREATE TABLE IF NOT EXISTS` + guarded `ALTER TABLE` migrations):
 
 | Table | Purpose |
 |---|---|
@@ -321,12 +331,13 @@ hire-signal/
 | `session_links` | Candidate links → containers |
 | `submissions` | Submitted workspaces, with flag status |
 | `submission_files` | Individual files per submission |
-| `session_logs` | Gemini interaction log per session |
+| `session_logs` | Gemini interaction log per session, including per-interaction token usage |
 | `dimension_scores` | Per-dimension score + rationale per submission |
 | `hire_evaluations` | Composite score + hire verdict (+ human override) |
-| `challenges` | Challenge catalog (draft/published) |
+| `challenges` | Challenge catalog (draft/published), including per-challenge dimension applicability + optional decision point |
 | `comparison_sessions` | Saved side-by-side comparison views |
 | `score_overrides` | Append-only human-override audit log |
+| `flag_events` | Append-only flag-lifecycle audit log |
 
 Full schema detail: [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md)
 
@@ -417,7 +428,7 @@ This runs on a single-process Flask dev server + SQLite by design — it's a hir
 - **AI**: Gemini models via the Gemini API (`gemini-2.5-flash` default, swappable via `GEMINI_MODEL`)
 - **Candidate environment**: Docker, code-server (browser VS Code), Gemini CLI
 - **Frontend**: Vanilla HTML/CSS/JS — no framework, no build step
-- **Testing**: pytest, 64 tests, fully mocked LLM/Docker
+- **Testing**: pytest, 199 tests, fully mocked LLM/Docker
 
 ---
 
