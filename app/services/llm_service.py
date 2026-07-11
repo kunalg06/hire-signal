@@ -1,7 +1,7 @@
 import os
-import httpx
 from google import genai
 from google.genai import types
+from app.config import Config
 
 class LLMService:
     """Thin provider wrapper — swap models via GEMINI_MODEL env var."""
@@ -14,10 +14,12 @@ class LLMService:
             api_key = os.getenv('GEMINI_API_KEY', '').strip().strip('"').strip("'")
             if not api_key:
                 raise ValueError("GEMINI_API_KEY not set in environment")
-            cls._client = genai.Client(
-                api_key=api_key,
-                http_options=types.HttpOptions(httpx_client=httpx.Client(verify=False)),
-            )
+            client_kwargs = {'api_key': api_key}
+            if Config.GEMINI_TLS_SKIP_VERIFY:
+                import httpx
+                client_kwargs['http_options'] = types.HttpOptions(
+                    httpx_client=httpx.Client(verify=False))
+            cls._client = genai.Client(**client_kwargs)
         return cls._client
 
     @classmethod

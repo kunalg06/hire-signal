@@ -28,6 +28,14 @@ class Config:
     # LLM — routed through Gemini (swap model via GEMINI_MODEL env var)
     GEMINI_API_KEY = os.getenv('GEMINI_API_KEY', '')
     GEMINI_MODEL   = os.getenv('GEMINI_MODEL', 'gemini-2.5-flash')
+    # TLS verification for outbound Gemini API calls. Defaults to secure
+    # (verified) in every environment, including production. Only set to
+    # true in a LOCAL .env if your network has a TLS-inspecting proxy that
+    # breaks certificate validation (e.g. an antivirus's HTTPS-scanning
+    # feature presenting its own locally-generated CA) — never in
+    # production, since this disables MITM protection entirely.
+    GEMINI_TLS_SKIP_VERIFY = os.getenv(
+        'GEMINI_TLS_SKIP_VERIFY', 'false').strip().lower() in ('1', 'true', 'yes')
 
     # Docker
     DOCKER_HOST = os.getenv('DOCKER_HOST', None)
