@@ -29,7 +29,7 @@ This is NOT an educational platform. It is a **hiring tool** for employers to ev
 
 - **Human override policy**: AI scores inform, never decide. Employers can flag/override any score. Every override logged as calibration data. Visibility floor — score affects rank, never hides candidates.
 
-- **Guarded vs Unguarded mode**: Unguarded = Gemini can give full solutions. Guarded = Gemini restricted to guidance only.
+- **Guarded vs Unguarded mode**: Unguarded = Gemini can give full solutions. Guarded = governed AI availability (HackerRank-style, revised 2026-07-11): short targeted code is allowed once the candidate states their own hypothesis, but Gemini must redirect an unqualified "solve it for me" with a diagnostic question and never enumerate multiple issues unprompted — not a hard "no code at all" block.
 
 - **Challenge types**: `bug_fix | feature_extension | refactoring | optimization`
 - **Skill areas**: `api_integration | rate_limiting | data_pipeline | llm_usage | server_monitoring | game_logic`
@@ -387,26 +387,29 @@ New test files this session: `test_generate_link_ai_assistance_mode.py`, `test_g
 - **`hire_evaluations.composite_score` and `.recommendation` are read-only after creation** — override only writes `is_overridden`, `override_recommendation`, `override_rationale`.
 - **`dim_averages` uses `is_evaluated` filter, not dict truthiness** — and skips None scores (no zero-default).
 - **No sandbox on student iframe** — code-server uses service workers; sandbox blocks them.
-- **Guarded mode is honor-system-only (v1)** — enforced via `/workspace/GEMINI.md` injection; students can delete/edit it. Accepted scope; hard enforcement deferred.
+- **Guarded mode is honor-system-only (v1)** — enforced via a read-only bind-mounted `~/.gemini/GEMINI.md` (Gemini CLI's global context file, not workspace-local; Story 9.7). Kernel-enforced read-only for the file itself, but a candidate can still relocate `$HOME` to dodge the mount entirely. Accepted scope; hard enforcement deferred.
 - **Module-level `db_service = DatabaseService()`** in each route file — instantiated at import time.
 - **Windows cp1252 print constraint** — see above; applies to ALL print/logging statements.
 
 ---
 
-## DB Schema — Current Tables (10 total after Epic 4)
+## DB Schema — Current Tables (11 total)
 
 | Table | Key Columns |
 |---|---|
 | `assignments` | `id, title, description, starter_code, evaluation_criteria, challenge_id, is_deleted` |
-| `session_links` | `link_id, assignment_id, container_id, port, expires_at` |
+| `session_links` | `link_id, assignment_id, container_id, port, expires_at, ai_assistance_mode, guarded_mode_enforced` |
 | `submissions` | `submission_id, link_id, assignment_id, score, feedback, is_flagged, flag_reason, flag_by, flagged_at` |
 | `submission_files` | `file_id, submission_id, filename, content, file_size` |
-| `session_logs` | `log_id, submission_id, timestamp, interaction_type, prompt, response_summary` |
-| `dimension_scores` | `score_id, submission_id, dimension, score, rationale` |
+| `session_logs` | `log_id, submission_id, timestamp, interaction_type, prompt, response_summary, file_changes_count, raw_json, token_count` |
+| `dimension_scores` | `score_id, submission_id, dimension, score, rationale, scoring_method` |
 | `hire_evaluations` | `eval_id, submission_id, composite_score, recommendation, is_overridden, override_recommendation, override_rationale, evaluated_at` |
-| `challenges` | `id, title, domain, description, evaluation_rubric, starter_code, challenge_type, skill_area, difficulty, ai_assistance_mode, is_published, created_at` |
+| `challenges` | `id, title, domain, description, evaluation_rubric, starter_code, challenge_type, skill_area, difficulty, ai_assistance_mode, is_published, created_at, applicable_dimensions_json, decision_point_json` |
 | `comparison_sessions` | `id, challenge_id, name, submission_ids_json, created_at` |
 | `score_overrides` | `id, submission_id, ai_recommendation, human_recommendation, override_rationale, overridden_at` |
+| `flag_events` | `id, submission_id, reason, flagged_by, flagged_at` (append-only, mirrors `score_overrides`) |
+
+`applicable_dimensions_json`/`decision_point_json`/`token_count` added 2026-07-11 — see the party-mode review entries below. All nullable/default-0, NULL-safe for every pre-existing row.
 
 ---
 
