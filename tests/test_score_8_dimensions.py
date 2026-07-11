@@ -343,3 +343,124 @@ def test_non_numeric_dimension_score_coerced_to_zero(monkeypatch, assignment):
     assert result["hire_recommendation"] == "pass"
     for d in EXPECTED_DIMS:
         assert result["dimensions"][d]["score"] == 0
+
+
+# ── Party-mode review 2026-07-11: unscored != scored-0 ─────────────────────
+
+def test_chat_exception_marks_evaluation_failed(monkeypatch, assignment):
+    """A swallowed provider/parse failure must be distinguishable from a
+    candidate who genuinely earned a 0 — see evaluate_submission_files()'s
+    auto-flag in app/routes/submissions.py, which acts on this flag."""
+    def boom(*args, **kwargs):
+        raise RuntimeError("provider down")
+    monkeypatch.setattr(LLMService, "chat", boom)
+    result = run(assignment)
+    assert result["evaluation_failed"] is True
+
+
+def test_successful_scoring_does_not_mark_evaluation_failed(monkeypatch, assignment):
+    mock_chat(monkeypatch, make_response({d: 80 for d in ALL_DIMS}))
+    result = run(assignment)
+    assert "evaluation_failed" not in result or result["evaluation_failed"] is False
+
+
+# ── Party-mode review 2026-07-11: per-challenge dimension applicability ────
+# Scoring a dimension the challenge never offered a real opportunity for as
+# a deserved 0 (averaged in with everything else) made the composite
+# unreliable across challenge types. An inapplicable dimension is now
+# EXCLUDED from the composite's denominator instead.
+
+def test_inapplicable_dimension_excluded_from_composite(monkeypatch):
+    """architecture_decisions is marked inapplicable; even though the judge
+    still returns a low score for it, it must not drag the composite down,
+    and the renormalized weights of the remaining 7 dimensions must still
+    sum correctly."""
+    assignment = {
+        "title": "T", "description": "D", "evaluation_criteria": "C",
+        "applicable_dimensions": [d for d in ALL_DIMS if d != "architecture_decisions"],
+    }
+    scores = {d: 80 for d in ALL_DIMS}
+    scores["architecture_decisions"] = 0  # judge still scores it, but it must not count
+    mock_chat(monkeypatch, make_response(scores))
+    result = run(assignment)
+
+    # All dims scored 80 except the excluded one (irrelevant to the mean) —
+    # composite must be exactly 80.0, not dragged down by the excluded 0.
+    assert result["composite_score"] == 80.0
+    assert result["dimensions"]["architecture_decisions"]["applicable"] is False
+    for d in ALL_DIMS:
+        if d != "architecture_decisions":
+            assert result["dimensions"][d]["applicable"] is True
+
+
+def test_applicable_dimensions_absent_defaults_to_all_eight(monkeypatch, assignment):
+    """Backward compatibility: an assignment dict with no applicable_dimensions
+    key (e.g. every pre-existing challenge) must score exactly as before."""
+    mock_chat(monkeypatch, make_response(DISTINCT_SCORES))
+    result = run(assignment)
+    assert result["composite_score"] == 58.0
+    for d in EXPECTED_DIMS:
+        assert result["dimensions"][d]["applicable"] is True
+
+
+def test_unrecognized_applicable_dimension_keys_are_sanitized(monkeypatch):
+    """A garbage/unrecognized dimension key in applicable_dimensions must be
+    dropped rather than crash the weight-sum computation."""
+    assignment = {
+        "title": "T", "description": "D", "evaluation_criteria": "C",
+        "applicable_dimensions": ["problem_decomposition", "not_a_real_dimension"],
+    }
+    mock_chat(monkeypatch, make_response({d: 80 for d in ALL_DIMS}))
+    result = run(assignment)
+    assert result["composite_score"] == 80.0
+    assert result["dimensions"]["problem_decomposition"]["applicable"] is True
+    assert result["dimensions"]["first_principles_thinking"]["applicable"] is False
+
+
+def test_empty_applicable_dimensions_falls_back_to_all_eight(monkeypatch):
+    """An empty list (e.g. every key filtered out as bogus) must fall back
+    to 'all 8 apply' rather than compute a divide-by-zero or empty composite."""
+    assignment = {
+        "title": "T", "description": "D", "evaluation_criteria": "C",
+        "applicable_dimensions": [],
+    }
+    mock_chat(monkeypatch, make_response({d: 80 for d in ALL_DIMS}))
+    result = run(assignment)
+    assert result["composite_score"] == 80.0
+    for d in EXPECTED_DIMS:
+        assert result["dimensions"][d]["applicable"] is True
+
+
+def test_decision_point_context_reaches_the_scoring_prompt(monkeypatch):
+    captured = {}
+
+    def capture(*args, **kwargs):
+        captured["prompt"] = args[0]
+        return make_response({d: 80 for d in ALL_DIMS})
+    monkeypatch.setattr(LLMService, "chat", capture)
+
+    assignment = {
+        "title": "T", "description": "D", "evaluation_criteria": "C",
+        "decision_point": {
+            "applies": True,
+            "prompt": "Sliding window or token bucket?",
+            "option_a": "Sliding window: precise, more memory",
+            "option_b": "Token bucket: less memory, allows bursts",
+        },
+    }
+    run(assignment)
+    prompt = captured["prompt"]
+    assert "Sliding window or token bucket?" in prompt
+    assert "Sliding window: precise, more memory" in prompt
+    assert "Token bucket: less memory, allows bursts" in prompt
+
+
+def test_decision_point_not_applicable_omitted_from_prompt(monkeypatch, assignment):
+    captured = {}
+
+    def capture(*args, **kwargs):
+        captured["prompt"] = args[0]
+        return make_response({d: 80 for d in ALL_DIMS})
+    monkeypatch.setattr(LLMService, "chat", capture)
+    run(assignment)  # default `assignment` fixture has no decision_point key
+    assert "Decision Point" not in captured["prompt"]

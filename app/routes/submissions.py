@@ -97,6 +97,24 @@ def evaluate_submission_files(submission_id, assignment, session_logs=None,
             evaluation['hire_recommendation'],
         )
 
+        # Party-mode review 2026-07-11 (Murat/Test Architect): a swallowed
+        # judge parse/API failure must never look identical to a candidate
+        # who genuinely earned 0. score_8_dimensions() marks this case with
+        # evaluation_failed=True; auto-flag it here using the EXISTING
+        # flag/audit infrastructure so it surfaces for manual review instead
+        # of silently standing in as a real hire decision.
+        if evaluation.get("evaluation_failed"):
+            event_id = IDGenerator.generate_uuid()
+            db_service.flag_submission(
+                submission_id,
+                "AI evaluation failed (parse/API error) — composite score is a "
+                "placeholder, not a real judgment. Needs manual review.",
+                flagged_by="system",
+                event_id=event_id,
+            )
+            logger.warning(
+                "Submission %s auto-flagged: evaluation_failed", submission_id)
+
     except Exception as e:
         logger.error("Failed to evaluate submission %s: %s", submission_id, e)
 
@@ -132,14 +150,24 @@ def submit_with_files(link_id):
     if not row:
         return jsonify({"detail": "Session not found"}), 404
 
-    container_id, assignment_id, title, description, criteria, container_created_at = row
+    container_id, assignment_id, title, description, criteria, container_created_at, challenge_id = row
+
+    # applicable_dimensions/decision_point (party-mode review 2026-07-11):
+    # None-safe — assignments not linked to a catalog challenge, or
+    # challenges created before this feature, simply get the pre-existing
+    # "all 8 dimensions apply, no decision point" behavior.
+    applicable_dimensions, decision_point = (None, None)
+    if challenge_id:
+        applicable_dimensions, decision_point = db_service.get_challenge_dimension_config(challenge_id)
 
     # Create assignment dict for evaluation
     assignment = {
         "id": assignment_id,
         "title": title,
         "description": description,
-        "evaluation_criteria": criteria
+        "evaluation_criteria": criteria,
+        "applicable_dimensions": applicable_dimensions,
+        "decision_point": decision_point,
     }
 
     # Collect files from container

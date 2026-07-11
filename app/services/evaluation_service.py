@@ -86,8 +86,40 @@ class EvaluationService:
                 ),
             },
             "starter_code": {"type": "STRING"},
+            "applicable_dimensions": {
+                "type": "ARRAY",
+                "items": {"type": "STRING"},
+                "description": (
+                    "Subset of the 8 dimension keys (problem_decomposition, "
+                    "first_principles_thinking, creative_problem_solving, iteration_quality, "
+                    "debugging_with_ai, architecture_decisions, communication_clarity, "
+                    "token_efficiency) that THIS SPECIFIC challenge can genuinely generate "
+                    "evidence for. Omit a dimension only if the challenge structurally cannot "
+                    "produce a real signal for it — e.g. omit architecture_decisions for a "
+                    "pure correctness/typo-level bug fix with no design trade-off anywhere in "
+                    "the code."
+                ),
+            },
+            "decision_point": {
+                "type": "OBJECT",
+                "properties": {
+                    "applies": {
+                        "type": "BOOLEAN",
+                        "description": (
+                            "True only if this challenge contains a genuine design/architecture "
+                            "trade-off the candidate must choose between and justify. If true, "
+                            "architecture_decisions MUST be included in applicable_dimensions."
+                        ),
+                    },
+                    "prompt": {"type": "STRING", "description": "The trade-off framed as a neutral question, no verdict. Empty string if applies=false."},
+                    "option_a": {"type": "STRING", "description": "First named approach with its real trade-off. Empty string if applies=false."},
+                    "option_b": {"type": "STRING", "description": "Second named approach with its real trade-off. Empty string if applies=false."},
+                },
+                "required": ["applies", "prompt", "option_a", "option_b"],
+            },
         },
-        "required": ["title", "description", "evaluation_criteria", "starter_code"],
+        "required": ["title", "description", "evaluation_criteria", "starter_code",
+                     "applicable_dimensions", "decision_point"],
     }
 
     @staticmethod
@@ -192,6 +224,42 @@ class EvaluationService:
             )
 
     @staticmethod
+    def _normalize_applicable_dimensions(raw) -> list:
+        """Sanitize the LLM's applicable_dimensions list: keep only real
+        dimension keys, dedupe, preserve DIMENSION_WEIGHTS order. Falls back
+        to 'all 8 apply' (this codebase's pre-existing behavior) on anything
+        empty or unusable — never raises, never blocks challenge creation."""
+        if not isinstance(raw, list):
+            return list(EvaluationService.DIMENSION_WEIGHTS.keys())
+        valid = {d for d in raw if isinstance(d, str) and d in EvaluationService.DIMENSION_WEIGHTS}
+        if not valid:
+            return list(EvaluationService.DIMENSION_WEIGHTS.keys())
+        return [d for d in EvaluationService.DIMENSION_WEIGHTS if d in valid]
+
+    @staticmethod
+    def _normalize_decision_point(raw) -> dict:
+        """Sanitize the LLM's decision_point object. Falls back to a
+        no-op ({'applies': False, ...}) on anything malformed — a broken
+        decision_point must never block challenge creation."""
+        default = {"applies": False, "prompt": "", "option_a": "", "option_b": ""}
+        if not isinstance(raw, dict):
+            return default
+        applies = raw.get("applies")
+        if not isinstance(applies, bool):
+            return default
+        if not applies:
+            return default
+        prompt   = raw.get("prompt")
+        option_a = raw.get("option_a")
+        option_b = raw.get("option_b")
+        if not all(isinstance(v, str) and v.strip() for v in (prompt, option_a, option_b)):
+            logger.warning(
+                "generate_challenge(): decision_point.applies=True but prompt/option_a/"
+                "option_b incomplete — dropping decision point")
+            return default
+        return {"applies": True, "prompt": prompt, "option_a": option_a, "option_b": option_b}
+
+    @staticmethod
     def extract_container_files(container_id: str,
                                 workspace: str = '/workspace') -> dict:
         """
@@ -288,6 +356,12 @@ class EvaluationService:
         safe default (all dimensions score=0, recommendation='pass').
         """
         # ── Safe default returned on any failure ─────────────────────────
+        # evaluation_failed=True marks this as UNSCORED, not a genuine zero —
+        # per party-mode review 2026-07-11 (Murat/Test Architect): a swallowed
+        # parse/API failure must never look identical to a candidate who
+        # actually earned a 0. Callers (see submissions.py) auto-flag the
+        # submission for manual review when this is set, rather than letting
+        # composite_score=0.0/"pass" silently stand in as a real judgment.
         def _default_result(reason: str) -> dict:
             dims = {d: {"score": 0, "rationale": reason}
                     for d in EvaluationService.DIMENSION_WEIGHTS}
@@ -296,6 +370,7 @@ class EvaluationService:
                 "composite_score": 0.0,
                 "hire_recommendation": "pass",
                 "recommendation_rationale": reason,
+                "evaluation_failed": True,
             }
 
         try:
@@ -323,6 +398,43 @@ class EvaluationService:
             else:
                 files_text = "No workspace files retrieved."
 
+            # ── Applicable dimensions + optional decision point (party-mode ─
+            # review 2026-07-11): a dimension the challenge never offered a
+            # real opportunity for must not silently average in as a
+            # deserved 0 — see the composite computation below, which
+            # excludes inapplicable dimensions from the denominator instead.
+            applicable_dims = assignment.get('applicable_dimensions') or list(
+                EvaluationService.DIMENSION_WEIGHTS.keys())
+            applicable_dims = [d for d in applicable_dims if d in EvaluationService.DIMENSION_WEIGHTS]
+            if not applicable_dims:
+                applicable_dims = list(EvaluationService.DIMENSION_WEIGHTS.keys())
+            inapplicable_dims = [d for d in EvaluationService.DIMENSION_WEIGHTS if d not in applicable_dims]
+
+            applicability_note = ""
+            if inapplicable_dims:
+                inapplicable_labels = ", ".join(inapplicable_dims)
+                applicability_note = (
+                    f"\nNOTE: this challenge does not offer a real opportunity to "
+                    f"demonstrate {inapplicable_labels} — still give your best-effort score "
+                    f"and rationale for it, but the platform excludes it from the composite, "
+                    f"so do not let it drag down your judgment of the other dimensions.\n"
+                )
+
+            decision_point = assignment.get('decision_point') or {}
+            decision_point_note = ""
+            if decision_point.get('applies'):
+                decision_point_note = f"""
+## Decision Point
+This challenge poses a genuine design choice to the candidate:
+"{decision_point.get('prompt', '')}"
+- Option A: {decision_point.get('option_a', '')}
+- Option B: {decision_point.get('option_b', '')}
+Look in the submitted files (e.g. a DECISION.md or similar) and session logs for the
+candidate's own stated choice and justification. Weight architecture_decisions and
+first_principles_thinking heavily on whether they made and defended a real choice here
+— not on whether they picked "the right" option, since both are legitimate.
+"""
+
             # ── Build prompt ───────────────────────────────────────────────
             weights = EvaluationService.DIMENSION_WEIGHTS
             scoring_prompt = f"""You are a senior engineering hiring assessor evaluating a candidate's \
@@ -333,7 +445,7 @@ logs and submitted files.
 Title: {assignment.get('title', 'N/A')}
 Description: {assignment.get('description', 'N/A')}
 Evaluation Criteria: {assignment.get('evaluation_criteria', 'N/A')}
-
+{applicability_note}{decision_point_note}
 ## AI Session Logs (candidate prompts → AI responses, chronological)
 {logs_text}
 
@@ -408,16 +520,30 @@ Respond ONLY with valid JSON — no markdown fences, no prose:
             logger.error("8-dimension scoring error: %s", e)
             return _default_result(f"Scoring error: {str(e)[:120]}")
 
+        # Mark each dimension's applicability so the frontend can grey out
+        # (rather than silently average in) a dimension this challenge never
+        # offered a real opportunity for.
+        for d in dims:
+            dims[d]["applicable"] = d in applicable_dims
         result["dimensions"] = dims
 
         # ── Python-enforced composite + thresholds (never trust Gemini's) ─
+        # Only applicable dimensions enter the weighted mean, renormalized
+        # over their own weights — an inapplicable dimension is EXCLUDED
+        # from the denominator, not scored 0 and averaged in (party-mode
+        # review 2026-07-11: conflating "candidate didn't do X" with "the
+        # challenge couldn't measure X" made the composite unreliable across
+        # challenge types).
         # Round once, then classify AND store the same rounded value — a
         # pre-round composite (e.g. 84.996) must not classify as "hire"
         # while the stored, post-round composite reads 85.0 ("strong_hire").
+        applicable_weight_sum = sum(
+            EvaluationService.DIMENSION_WEIGHTS[d] for d in applicable_dims
+        ) or 1.0  # guards a pathological empty applicable_dims (already normalized to all 8 above)
         composite = sum(
-            dims[d]["score"] * w
-            for d, w in EvaluationService.DIMENSION_WEIGHTS.items()
-        )
+            dims[d]["score"] * EvaluationService.DIMENSION_WEIGHTS[d]
+            for d in applicable_dims
+        ) / applicable_weight_sum
         composite = round(min(100.0, max(0.0, composite)), 2)
 
         thresholds = EvaluationService.HIRE_THRESHOLDS
@@ -482,6 +608,10 @@ Respond ONLY with valid JSON — no markdown fences, no prose:
             "composite_score":        composite,
             "recommendation_rationale": narrative,
             "dimensions":             dims,
+            # True only when scoring itself failed (parse/API error) — see
+            # score_8_dimensions()'s _default_result. Callers should flag the
+            # submission for manual review rather than trust this score.
+            "evaluation_failed":     result.get("evaluation_failed", False),
             # ── Legacy fields (kept for backward compat) ────────────────
             "score":                  composite,
             "feedback":               feedback,
@@ -588,13 +718,36 @@ dimension. Ground every criterion in the Problem Context, Challenge Type, and Sk
 Area above, so a reader recognizes exactly what this particular challenge is testing
 for that dimension.
 
+## Dimension Applicability — be honest, not exhaustive
+Not every challenge can generate real evidence for all 8 dimensions. In particular,
+**architecture_decisions** requires a genuine structural trade-off the candidate must
+weigh — it does NOT apply just because the code has classes or state. A pure
+correctness fix (off-by-one, wrong variable, typo-level logic error) with only one
+reasonable fix has NO architecture decision in it, even if the bug happens to involve
+object state. Only mark a dimension applicable if THIS challenge can actually produce
+evidence for it. Most challenges should still mark 6-8 dimensions applicable —
+omitting one is the exception, not the default, and should reflect a real structural
+limit of the challenge, not laziness.
+
+## Decision Point — optional, only when a real trade-off exists
+If (and only if) this specific challenge contains a genuine design fork — two
+legitimate, different ways to solve part of it with real, explainable trade-offs
+(e.g. sliding-window vs. token-bucket rate limiting; in-memory vs. persisted cache;
+eager vs. lazy validation) — set decision_point.applies=true and describe both named
+options neutrally, with NO indication of which is "better". The candidate must weigh
+and justify their own choice; do not pre-decide it for them. If no genuine fork
+exists in this challenge, set applies=false and leave the three string fields empty.
+When applies=true, architecture_decisions MUST be included in applicable_dimensions.
+
 ## Output Format
 Respond ONLY with valid JSON — no markdown fences, no prose before or after:
 {{
   "title": "concise challenge title (max 60 chars, action-oriented), clearly reflecting the Problem Context above",
   "description": "full scenario with business context, exact deliverable, constraints, and success criteria (200-350 words) — directly grounded in the Problem Context, Challenge Type, and Skill Area above",
   "evaluation_criteria": "EXACTLY 8 semicolon-separated criteria, one per dimension in the order listed above, each prefixed with its dimension name in brackets, e.g. '[Problem Decomposition] ...; [First-Principles Thinking] ...; [Creative Problem Solving] ...; [Iteration Quality] ...; [Debugging with AI] ...; [Architecture Decisions] ...; [Communication Clarity] ...; [Token Efficiency] ...'",
-  "starter_code": "complete Python file ready to be placed in the candidate workspace, matching the Challenge Type and Skill Area requirements above"
+  "starter_code": "complete Python file ready to be placed in the candidate workspace, matching the Challenge Type and Skill Area requirements above",
+  "applicable_dimensions": ["problem_decomposition", "first_principles_thinking", "..."],
+  "decision_point": {{"applies": false, "prompt": "", "option_a": "", "option_b": ""}}
 }}"""
 
         def _validate_challenge_fields(challenge: dict) -> None:
@@ -615,7 +768,7 @@ Respond ONLY with valid JSON — no markdown fences, no prose before or after:
                 challenge.get('evaluation_criteria', ''))
 
         try:
-            return EvaluationService._call_llm_for_json(
+            challenge = EvaluationService._call_llm_for_json(
                 # 3000 was too low: complex, multi-requirement problem
                 # statements (e.g. a concurrent multiplayer game server)
                 # reliably need 3500-4700+ output tokens for title+
@@ -633,3 +786,19 @@ Respond ONLY with valid JSON — no markdown fences, no prose before or after:
             raise Exception(f"Failed to parse Gemini response as JSON: {str(e)}")
         except Exception as e:
             raise Exception(f"Challenge generation failed: {str(e)}")
+
+        # Sanitize applicable_dimensions/decision_point post-hoc (warn-only,
+        # never blocks generation — party-mode review 2026-07-11): these
+        # feed a scoring-math change (renormalized composite) and a
+        # candidate-facing instructions.md section, so malformed input here
+        # must degrade to the safe "all 8 apply, no decision point" default
+        # rather than propagate garbage into either.
+        challenge['applicable_dimensions'] = EvaluationService._normalize_applicable_dimensions(
+            challenge.get('applicable_dimensions'))
+        challenge['decision_point'] = EvaluationService._normalize_decision_point(
+            challenge.get('decision_point'))
+        if (challenge['decision_point']['applies']
+                and 'architecture_decisions' not in challenge['applicable_dimensions']):
+            challenge['applicable_dimensions'].append('architecture_decisions')
+
+        return challenge

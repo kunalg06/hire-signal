@@ -228,3 +228,20 @@ class Database:
                 conn.commit()
         except sqlite3.OperationalError:
             pass  # Column already exists
+
+        # Schema migration: per-challenge dimension applicability + optional
+        # decision-point fork, both nullable (NULL = all 8 dimensions apply,
+        # no decision point) so existing challenges keep scoring exactly as
+        # before. See party-mode review 2026-07-11: scoring "Architecture
+        # Decisions" (or any dimension) at 0 for a challenge that structurally
+        # never offered that opportunity is a validity bug, not a fair score.
+        for _col_sql in [
+            'ALTER TABLE challenges ADD COLUMN applicable_dimensions_json TEXT',
+            'ALTER TABLE challenges ADD COLUMN decision_point_json TEXT',
+        ]:
+            try:
+                with self.get_connection() as conn:
+                    conn.execute(_col_sql)
+                    conn.commit()
+            except sqlite3.OperationalError:
+                pass  # Column already exists

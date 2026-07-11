@@ -1021,9 +1021,13 @@ def student_preview(challenge_id):
     if not row:
         return jsonify({"detail": "Challenge not found"}), 404
 
+    # Unpack only the first 12 columns positionally — applicable_dimensions_json/
+    # decision_point_json (indices 12/13, added via ALTER TABLE migration) aren't
+    # needed by this preview route, and a fixed 12-value unpack would break
+    # every time a migration appends a new trailing column.
     _, title, domain, description, evaluation_rubric_json, starter_code, \
         challenge_type, skill_area, difficulty, ai_assistance_mode, \
-        is_published, created_at = row
+        is_published, created_at = row[:12]
 
     criteria = str(evaluation_rubric_json) if evaluation_rubric_json else None
     html = _render_student_preview_html(title, description, criteria, starter_code)

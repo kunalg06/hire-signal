@@ -1,5 +1,6 @@
 """Routes for AI-based challenge generation and catalog management"""
 
+import json
 import logging
 import math
 from flask import Blueprint, request, jsonify
@@ -29,7 +30,13 @@ VALID_SORT_FIELDS = {'composite_score'} | set(DIM_KEYS)
 
 
 def _challenge_row_to_dict(row):
-    """Map a challenges table row to a dict (column order matches CREATE TABLE)"""
+    """Map a challenges table row to a dict (column order matches CREATE TABLE).
+    applicable_dimensions/decision_point (indices 12/13) were added via
+    ALTER TABLE migration — absent (None) on any challenge created before
+    that migration, so both default to the pre-existing 'all 8 apply, no
+    decision point' behavior rather than raising an IndexError."""
+    applicable_dimensions_json = row[12] if len(row) > 12 else None
+    decision_point_json        = row[13] if len(row) > 13 else None
     return {
         'id':                   row[0],
         'title':                row[1],
@@ -43,6 +50,9 @@ def _challenge_row_to_dict(row):
         'ai_assistance_mode':   row[9],
         'is_published':         bool(row[10]),
         'created_at':           row[11],
+        'applicable_dimensions': json.loads(applicable_dimensions_json) if applicable_dimensions_json else DIM_KEYS,
+        'decision_point':        json.loads(decision_point_json) if decision_point_json else {
+            'applies': False, 'prompt': '', 'option_a': '', 'option_b': ''},
     }
 
 
@@ -107,6 +117,9 @@ def generate_challenge():
             difficulty=difficulty,
             ai_assistance_mode=ai_assistance_mode,
             evaluation_rubric_json=challenge.get('evaluation_criteria'),
+            applicable_dimensions_json=json.dumps(challenge.get('applicable_dimensions', DIM_KEYS)),
+            decision_point_json=json.dumps(challenge.get('decision_point', {
+                'applies': False, 'prompt': '', 'option_a': '', 'option_b': ''})),
         )
     except Exception as e:
         # Generation succeeded — return it even if persist fails

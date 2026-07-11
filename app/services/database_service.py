@@ -261,11 +261,14 @@ class DatabaseService:
             return cursor.fetchall()
 
     def get_link_container_info(self, link_id):
-        """Get container and assignment info for a link"""
+        """Get container and assignment info for a link. challenge_id (last
+        column) lets the caller look up per-challenge dimension applicability
+        / decision-point config via get_challenge_dimension_config()."""
         with self.db.get_connection() as conn:
             cursor = conn.cursor()
             cursor.execute('''
-                SELECT sl.container_id, sl.assignment_id, a.title, a.description, a.evaluation_criteria, sl.created_at
+                SELECT sl.container_id, sl.assignment_id, a.title, a.description, a.evaluation_criteria,
+                       sl.created_at, a.challenge_id
                 FROM session_links sl
                 JOIN assignments a ON sl.assignment_id = a.id
                 WHERE sl.link_id = ?
@@ -419,17 +422,22 @@ class DatabaseService:
 
     def create_challenge(self, challenge_id, title, domain, description,
                          starter_code, challenge_type, skill_area, difficulty,
-                         ai_assistance_mode, evaluation_rubric_json=None):
-        """Persist a generated challenge to the catalog (unpublished by default)"""
+                         ai_assistance_mode, evaluation_rubric_json=None,
+                         applicable_dimensions_json=None, decision_point_json=None):
+        """Persist a generated challenge to the catalog (unpublished by default).
+        applicable_dimensions_json/decision_point_json are nullable — NULL
+        means all 8 dimensions apply and no decision-point fork exists."""
         with self.db.get_connection() as conn:
             cursor = conn.cursor()
             cursor.execute('''
                 INSERT INTO challenges
                     (id, title, domain, description, evaluation_rubric_json,
-                     starter_code, challenge_type, skill_area, difficulty, ai_assistance_mode)
-                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                     starter_code, challenge_type, skill_area, difficulty, ai_assistance_mode,
+                     applicable_dimensions_json, decision_point_json)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
             ''', (challenge_id, title, domain, description, evaluation_rubric_json,
-                  starter_code, challenge_type, skill_area, difficulty, ai_assistance_mode))
+                  starter_code, challenge_type, skill_area, difficulty, ai_assistance_mode,
+                  applicable_dimensions_json, decision_point_json))
             conn.commit()
 
     def get_challenge(self, challenge_id):
@@ -438,6 +446,23 @@ class DatabaseService:
             cursor = conn.cursor()
             cursor.execute('SELECT * FROM challenges WHERE id = ?', (challenge_id,))
             return cursor.fetchone()
+
+    def get_challenge_dimension_config(self, challenge_id):
+        """Return (applicable_dimensions, decision_point) for a challenge —
+        a list of dimension keys and a dict, or (None, None) if the
+        challenge has neither set (defaults to 'all 8 apply, no decision
+        point' at the caller)."""
+        with self.db.get_connection() as conn:
+            cursor = conn.cursor()
+            cursor.execute(
+                'SELECT applicable_dimensions_json, decision_point_json FROM challenges WHERE id = ?',
+                (challenge_id,))
+            row = cursor.fetchone()
+            if not row:
+                return None, None
+            applicable = json.loads(row[0]) if row[0] else None
+            decision_point = json.loads(row[1]) if row[1] else None
+            return applicable, decision_point
 
     def list_challenges(self, challenge_type=None, skill_area=None,
                         difficulty=None, ai_assistance_mode=None):
