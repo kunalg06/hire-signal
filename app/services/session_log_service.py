@@ -120,6 +120,14 @@ class SessionLogService:
                                   # messages (empty content), not the final reply itself —
                                   # confirmed empirically: the final reply message rarely
                                   # carries its own toolCalls.
+        pending_tokens = 0       # accumulated the same way: a "gemini"-type message
+                                 # carries a tokens.total field (confirmed empirically
+                                 # via a live spike, party-mode review 2026-07-11) —
+                                 # summed across every message in the turn so a
+                                 # multi-message turn (thinking pass + final reply)
+                                 # counts the whole turn's usage, not just the last
+                                 # message's. Neutral telemetry only — never folded
+                                 # into scoring, never a gate.
         for msg in ordered_messages:
             msg_type = msg.get('type')
             timestamp = msg.get('timestamp')
@@ -135,9 +143,15 @@ class SessionLogService:
                 pending_prompt = text
                 pending_timestamp = timestamp
                 pending_tool_calls = []
+                pending_tokens = 0
 
             elif msg_type == 'gemini' and pending_prompt is not None:
                 pending_tool_calls.extend(msg.get('toolCalls') or [])
+                msg_tokens = msg.get('tokens')
+                if isinstance(msg_tokens, dict):
+                    total = msg_tokens.get('total')
+                    if isinstance(total, (int, float)) and not isinstance(total, bool):
+                        pending_tokens += total
                 response = msg.get('content')
                 if not isinstance(response, str) or not response.strip():
                     continue  # "thinking"/tool-calling turn with no visible reply yet
@@ -152,11 +166,13 @@ class SessionLogService:
                     'prompt': pending_prompt,
                     'response_summary': response.strip(),
                     'file_changes_count': file_changes,
+                    'token_count': pending_tokens,
                     'raw_json': json.dumps({'prompt': pending_prompt, 'response': response.strip()}),
                 })
                 pending_prompt = None
                 pending_timestamp = None
                 pending_tool_calls = []
+                pending_tokens = 0
 
         return entries
 

@@ -97,14 +97,16 @@ class DatabaseService:
             ''', (file_id, submission_id, filename, file_content, file_size))
             conn.commit()
 
-    def add_session_log(self, log_id, submission_id, timestamp, interaction_type, prompt, response_summary, file_changes_count, raw_json):
-        """Add session log entry"""
+    def add_session_log(self, log_id, submission_id, timestamp, interaction_type, prompt, response_summary, file_changes_count, raw_json, token_count=0):
+        """Add session log entry. token_count is neutral telemetry (raw
+        Gemini token usage for this interaction) - never scored, never a
+        gate; see AGENT.md's 2026-07-11 party-mode review."""
         with self.db.get_connection() as conn:
             cursor = conn.cursor()
             cursor.execute('''
-                INSERT INTO session_logs (log_id, submission_id, timestamp, interaction_type, prompt, response_summary, file_changes_count, raw_json)
-                VALUES (?, ?, ?, ?, ?, ?, ?, ?)
-            ''', (log_id, submission_id, timestamp, interaction_type, prompt, response_summary, file_changes_count, raw_json))
+                INSERT INTO session_logs (log_id, submission_id, timestamp, interaction_type, prompt, response_summary, file_changes_count, raw_json, token_count)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+            ''', (log_id, submission_id, timestamp, interaction_type, prompt, response_summary, file_changes_count, raw_json, token_count))
             conn.commit()
 
     def update_submission_evaluation(self, submission_id, score, feedback, evaluation_result):
@@ -253,12 +255,44 @@ class DatabaseService:
         with self.db.get_connection() as conn:
             cursor = conn.cursor()
             cursor.execute('''
-                SELECT timestamp, interaction_type, prompt, response_summary, file_changes_count
+                SELECT timestamp, interaction_type, prompt, response_summary, file_changes_count, token_count
                 FROM session_logs
                 WHERE submission_id = ?
                 ORDER BY timestamp ASC
             ''', (submission_id,))
             return cursor.fetchall()
+
+    def get_total_tokens_for_submission(self, submission_id):
+        """Sum raw Gemini token usage across a submission's session logs.
+        Neutral telemetry only - never folded into scoring. Returns 0 (not
+        None) when there are no logs, so callers can display it plainly."""
+        with self.db.get_connection() as conn:
+            cursor = conn.cursor()
+            cursor.execute(
+                'SELECT COALESCE(SUM(token_count), 0) FROM session_logs WHERE submission_id = ?',
+                (submission_id,))
+            return cursor.fetchone()[0]
+
+    def get_total_tokens_for_submissions(self, submission_ids):
+        """Batch variant of get_total_tokens_for_submission() - avoids the
+        N+1 pattern in candidate ranking (same rationale as
+        get_dimension_scores_for_submissions()). Returns {submission_id: total}
+        with EVERY requested id present (0 if it has no logs)."""
+        totals = {sid: 0 for sid in submission_ids}
+        if not submission_ids:
+            return totals
+        with self.db.get_connection() as conn:
+            cursor = conn.cursor()
+            placeholders = ','.join('?' * len(submission_ids))
+            cursor.execute(f'''
+                SELECT submission_id, COALESCE(SUM(token_count), 0)
+                FROM session_logs
+                WHERE submission_id IN ({placeholders})
+                GROUP BY submission_id
+            ''', submission_ids)
+            for submission_id, total in cursor.fetchall():
+                totals[submission_id] = total
+        return totals
 
     def get_link_container_info(self, link_id):
         """Get container and assignment info for a link. challenge_id (last
@@ -375,28 +409,10 @@ class DatabaseService:
             return cursor.fetchone()
 
     def get_candidates_for_assignment(self, assignment_id):
-        """Return all submissions for an assignment ranked by composite score"""
-        with self.db.get_connection() as conn:
-            cursor = conn.cursor()
-            cursor.execute('''
-                SELECT
-                    s.submission_id,
-                    s.link_id,
-                    s.submitted_at,
-                    s.score,
-                    he.composite_score,
-                    he.recommendation,
-                    he.narrative,
-                    he.evaluated_at
-                FROM submissions s
-                LEFT JOIN hire_evaluations he ON s.submission_id = he.submission_id
-                WHERE s.assignment_id = ?
-                ORDER BY COALESCE(he.composite_score, s.score, 0) DESC
-            ''', (assignment_id,))
-            return cursor.fetchall()
-
-    def get_candidates_for_challenge(self, challenge_id):
-        """Return all submissions across all assignments linked to a challenge, ranked by composite score"""
+        """Return all submissions for an assignment ranked by composite score.
+        ai_assistance_mode (last column) lets the caller mode-stamp any raw
+        token-usage telemetry shown alongside a candidate - see
+        get_candidates_for_challenge()'s docstring for why that matters."""
         with self.db.get_connection() as conn:
             cursor = conn.cursor()
             cursor.execute('''
@@ -409,10 +425,40 @@ class DatabaseService:
                     he.recommendation,
                     he.narrative,
                     he.evaluated_at,
-                    s.is_flagged
+                    sl.ai_assistance_mode
+                FROM submissions s
+                LEFT JOIN hire_evaluations he ON s.submission_id = he.submission_id
+                LEFT JOIN session_links sl ON s.link_id = sl.link_id
+                WHERE s.assignment_id = ?
+                ORDER BY COALESCE(he.composite_score, s.score, 0) DESC
+            ''', (assignment_id,))
+            return cursor.fetchall()
+
+    def get_candidates_for_challenge(self, challenge_id):
+        """Return all submissions across all assignments linked to a challenge, ranked by composite score.
+        ai_assistance_mode (last column) lets the caller mode-stamp any raw
+        token-usage telemetry shown alongside a candidate — guarded and
+        unguarded sessions have structurally different token footprints,
+        so comparing them without the mode label is an apples-to-oranges
+        error (party-mode review 2026-07-11)."""
+        with self.db.get_connection() as conn:
+            cursor = conn.cursor()
+            cursor.execute('''
+                SELECT
+                    s.submission_id,
+                    s.link_id,
+                    s.submitted_at,
+                    s.score,
+                    he.composite_score,
+                    he.recommendation,
+                    he.narrative,
+                    he.evaluated_at,
+                    s.is_flagged,
+                    sl.ai_assistance_mode
                 FROM submissions s
                 JOIN assignments a ON s.assignment_id = a.id
                 LEFT JOIN hire_evaluations he ON s.submission_id = he.submission_id
+                LEFT JOIN session_links sl ON s.link_id = sl.link_id
                 WHERE a.challenge_id = ?
                 ORDER BY COALESCE(he.composite_score, s.score, 0) DESC
             ''', (challenge_id,))

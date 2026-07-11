@@ -245,3 +245,16 @@ class Database:
                     conn.commit()
             except sqlite3.OperationalError:
                 pass  # Column already exists
+
+        # Schema migration: raw token usage per interaction (party-mode
+        # review 2026-07-11). Gemini CLI's own session JSONL carries a
+        # tokens.total field per turn (confirmed empirically via a live
+        # spike) that the parser previously discarded. Stored as neutral
+        # telemetry only — never folded into the composite score or used
+        # as a gate; see AGENT.md for the full review.
+        try:
+            with self.get_connection() as conn:
+                conn.execute('ALTER TABLE session_logs ADD COLUMN token_count INTEGER DEFAULT 0')
+                conn.commit()
+        except sqlite3.OperationalError:
+            pass  # Column already exists

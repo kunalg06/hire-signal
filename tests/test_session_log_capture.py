@@ -60,15 +60,21 @@ def tool_result_msg(msg_id, timestamp):
             "content": [{"functionResponse": {"id": "x", "name": "read_file", "response": {"output": "..."}}}]}
 
 
-def gemini_thinking_msg(msg_id, timestamp, tool_calls=None):
+def gemini_thinking_msg(msg_id, timestamp, tool_calls=None, tokens=None):
     """A 'thinking'/tool-calling turn: empty content, no visible reply yet."""
-    return {"id": msg_id, "timestamp": timestamp, "type": "gemini", "content": "",
-            "thoughts": [{"subject": "x", "description": "y", "timestamp": timestamp}],
-            "toolCalls": tool_calls or []}
+    msg = {"id": msg_id, "timestamp": timestamp, "type": "gemini", "content": "",
+           "thoughts": [{"subject": "x", "description": "y", "timestamp": timestamp}],
+           "toolCalls": tool_calls or []}
+    if tokens is not None:
+        msg["tokens"] = tokens
+    return msg
 
 
-def gemini_reply_msg(msg_id, timestamp, text):
-    return {"id": msg_id, "timestamp": timestamp, "type": "gemini", "content": text}
+def gemini_reply_msg(msg_id, timestamp, text, tokens=None):
+    msg = {"id": msg_id, "timestamp": timestamp, "type": "gemini", "content": text}
+    if tokens is not None:
+        msg["tokens"] = tokens
+    return msg
 
 
 # ── parse_gemini_chat_session(): single-file parsing ────────────────────────
@@ -166,6 +172,78 @@ def test_file_changes_count_accumulated_from_intermediate_thinking_messages():
     entries = SessionLogService.parse_gemini_chat_session(content)
     assert len(entries) == 1
     assert entries[0]["file_changes_count"] == 1  # only write_file counts, read_file doesn't
+
+
+# ── Party-mode review 2026-07-11: raw token-usage extraction ───────────────
+# Confirmed empirically via a live spike (real `gemini -p` call, real
+# container) that a "gemini"-type message carries a `tokens` object with
+# `input`/`output`/`cached`/`thoughts`/`tool`/`total` fields. Neutral
+# telemetry only — never scored, never a gate.
+
+def test_token_count_extracted_from_single_gemini_message():
+    content = make_main_session(messages=[
+        user_msg("u1", "t1", "What does hire mean?"),
+        gemini_reply_msg("g1", "t2", "To employ someone for wages.",
+                          tokens={"input": 8011, "output": 21, "cached": 0,
+                                  "thoughts": 272, "tool": 0, "total": 8304}),
+    ])
+    entries = SessionLogService.parse_gemini_chat_session(content)
+    assert len(entries) == 1
+    assert entries[0]["token_count"] == 8304
+
+
+def test_token_count_accumulated_across_thinking_and_final_reply():
+    """Tokens can be reported on an intermediate 'thinking' message AND the
+    final reply — both must count toward the turn's total, mirroring how
+    file_changes_count already accumulates across the whole turn."""
+    content = make_main_session(messages=[
+        user_msg("u1", "t1", "Apply the fix"),
+        gemini_thinking_msg("g-thinking", "t2", tokens={"total": 500}),
+        gemini_reply_msg("g-final", "t3", "Applied the fix.", tokens={"total": 300}),
+    ])
+    entries = SessionLogService.parse_gemini_chat_session(content)
+    assert len(entries) == 1
+    assert entries[0]["token_count"] == 800
+
+
+def test_token_count_defaults_to_zero_when_tokens_field_absent():
+    """Older/different CLI builds might not include a tokens field at all -
+    must default to 0, not crash or omit the key."""
+    content = make_main_session(messages=[
+        user_msg("u1", "t1", "A question"),
+        gemini_reply_msg("g1", "t2", "An answer"),  # no tokens= passed
+    ])
+    entries = SessionLogService.parse_gemini_chat_session(content)
+    assert len(entries) == 1
+    assert entries[0]["token_count"] == 0
+
+
+def test_token_count_tolerates_malformed_tokens_shape():
+    """A non-dict or non-numeric tokens/total value must not crash the
+    parser - degrade to 0 for that message instead."""
+    content = make_main_session(messages=[
+        user_msg("u1", "t1", "A question"),
+        {"id": "g1", "timestamp": "t2", "type": "gemini",
+         "content": "An answer", "tokens": "not-a-dict"},
+    ])
+    entries = SessionLogService.parse_gemini_chat_session(content)
+    assert len(entries) == 1
+    assert entries[0]["token_count"] == 0
+
+
+def test_second_turn_token_count_does_not_leak_from_first_turn():
+    """pending_tokens must reset per user prompt, not accumulate across
+    unrelated turns."""
+    content = make_main_session(messages=[
+        user_msg("u1", "t1", "First question"),
+        gemini_reply_msg("g1", "t2", "First answer", tokens={"total": 1000}),
+        user_msg("u2", "t3", "Second question"),
+        gemini_reply_msg("g2", "t4", "Second answer", tokens={"total": 50}),
+    ])
+    entries = SessionLogService.parse_gemini_chat_session(content)
+    assert len(entries) == 2
+    assert entries[0]["token_count"] == 1000
+    assert entries[1]["token_count"] == 50
 
 
 def test_empty_content_returns_no_entries():

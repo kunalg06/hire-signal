@@ -50,7 +50,8 @@ MAIN_SESSION = "\n".join([
     json.dumps({"id": "u1", "timestamp": "2026-07-10T13:00:00.000Z", "type": "user",
                 "content": [{"text": "What does is_even do?"}]}),
     json.dumps({"id": "g1", "timestamp": "2026-07-10T13:00:05.000Z", "type": "gemini",
-                "content": "It checks divisibility by 2."}),
+                "content": "It checks divisibility by 2.",
+                "tokens": {"input": 100, "output": 20, "total": 120}}),
 ])
 
 
@@ -79,6 +80,8 @@ def test_submit_with_files_persists_real_session_logs(client, db, monkeypatch):
     assert len(rows) == 1
     assert rows[0][2] == "What does is_even do?"        # prompt
     assert rows[0][3] == "It checks divisibility by 2."  # response_summary
+    assert rows[0][5] == 120                             # token_count (party-mode review 2026-07-11)
+    assert db.get_total_tokens_for_submission(body["submission_id"]) == 120
 
 
 def test_submit_with_files_no_gemini_activity_stores_zero_logs(client, db, monkeypatch):

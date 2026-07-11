@@ -101,6 +101,10 @@ def get_candidates(assignment_id):
     rows = db_service.get_candidates_for_assignment(assignment_id)
     submission_ids = [row[0] for row in rows]
     dims_by_submission = db_service.get_dimension_scores_for_submissions(submission_ids)
+    # Raw AI token usage (party-mode review 2026-07-11): batch-fetched,
+    # mode-stamped via ai_assistance_mode (row[8]) - neutral telemetry only,
+    # never sorted/scored on by default.
+    tokens_by_submission = db_service.get_total_tokens_for_submissions(submission_ids)
 
     candidates = []
     for rank, row in enumerate(rows, 1):
@@ -118,6 +122,8 @@ def get_candidates(assignment_id):
             "recommendation_rationale": row[6],
             "evaluated_at":             row[7],
             "dimensions":               dimensions,
+            "ai_assistance_mode":       row[8] if len(row) > 8 else None,
+            "total_tokens_used":        tokens_by_submission.get(submission_id, 0),
         })
 
     # Cohort averages per dimension (for quartile context in UI)

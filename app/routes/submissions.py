@@ -234,7 +234,8 @@ def submit_with_files(link_id):
                     log_entry.get('prompt', ''),
                     log_entry.get('response_summary', ''),
                     log_entry.get('file_changes_count', 0),
-                    log_entry.get('raw_json', '')
+                    log_entry.get('raw_json', ''),
+                    log_entry.get('token_count', 0)
                 )
 
             logger.debug("  [ok] Stored %s session log entries", len(session_logs))
@@ -338,6 +339,12 @@ def get_submission(submission_id_or_link):
     # "guarded" assessment actually got its GEMINI.md restriction applied.
     ai_mode, guarded_enforced = db_service.get_session_link_assistance_info(row[1])
 
+    # Raw AI token usage (party-mode review 2026-07-11): neutral telemetry
+    # only, mode-stamped via ai_assistance_mode above so a recruiter doesn't
+    # compare guarded/unguarded token counts apples-to-oranges — never
+    # scored, never a gate, never folded into hire_evaluation.
+    total_tokens_used = db_service.get_total_tokens_for_submission(submission_id)
+
     return jsonify({
         # Core submission fields
         "submission_id":    row[0],
@@ -357,6 +364,8 @@ def get_submission(submission_id_or_link):
         # AI assistance mode + guarded-mode enforcement outcome (Story 9.3)
         "ai_assistance_mode":    ai_mode,
         "guarded_mode_enforced": bool(guarded_enforced) if guarded_enforced is not None else None,
+        # Raw AI token usage — informational only, see comment above
+        "total_tokens_used": total_tokens_used,
         # Supporting content
         "instructions_md":  instructions_md,
         "gemini_logs":      gemini_logs or "No Gemini session logs available",
@@ -376,7 +385,8 @@ def get_session_logs(submission_id):
             'interaction_type': row[1],
             'prompt': row[2],
             'response_summary': row[3],
-            'file_changes_count': row[4]
+            'file_changes_count': row[4],
+            'token_count': row[5] if len(row) > 5 and row[5] is not None else 0,
         }
         for row in rows
     ]
@@ -384,7 +394,8 @@ def get_session_logs(submission_id):
     return jsonify({
         "submission_id": submission_id,
         "logs": logs,
-        "total_interactions": len(logs)
+        "total_interactions": len(logs),
+        "total_tokens_used": sum(l['token_count'] for l in logs),
     })
 
 

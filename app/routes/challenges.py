@@ -239,6 +239,12 @@ def get_challenge_candidates(challenge_id):
     rows = db_service.get_candidates_for_challenge(challenge_id)
     submission_ids = [row[0] for row in rows]
     dims_by_submission = db_service.get_dimension_scores_for_submissions(submission_ids)
+    # Raw AI token usage (party-mode review 2026-07-11): batch-fetched to
+    # avoid an N+1, mode-stamped via ai_assistance_mode (row[9]) so a
+    # recruiter never compares guarded vs unguarded token counts as if
+    # they were the same scale. Neutral telemetry only — never sorted on
+    # by default, never folded into composite_score.
+    tokens_by_submission = db_service.get_total_tokens_for_submissions(submission_ids)
     candidates = []
     for row in rows:
         submission_id = row[0]
@@ -256,6 +262,8 @@ def get_challenge_candidates(challenge_id):
             'is_evaluated':             row[7] is not None,
             'is_flagged':               bool(row[8]),
             'dimensions':               dimensions,
+            'ai_assistance_mode':       row[9] if len(row) > 9 else None,
+            'total_tokens_used':        tokens_by_submission.get(submission_id, 0),
         })
 
     # Sort by requested field (Python-side — dimension scores are in a separate table)
