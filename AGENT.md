@@ -175,6 +175,24 @@ Known gaps are tracked in `_bmad-output/implementation-artifacts/deferred-work.m
 
 ---
 
+## New Feature (2026-07-11) — Raw AI token-usage telemetry (meter, not a gate)
+
+User proposed measuring per-submission AI token usage and using it to let recruiters skip evaluating high-usage candidates, plus a hard employer-configurable limit. Ran a second `/bmad-party-mode` round (John/PM, Winston/Architect, Murat/Test-Architect, Mary/Analyst) before building anything. Unanimous verdict: "no need to evaluate" violates the visibility-floor invariant outright; a hard limit is a validity risk as a quality gate (guarded/unguarded modes have structurally different token footprints, and high token usage may correlate with the platform's *strongest* candidates — First-Principles/Creative-Problem-Solving reward exploring multiple hypotheses out loud, which costs more tokens than a passive one-shot "solve it for me"); Mary additionally pointed out the platform's own dry-run data contradicts the premise (that session was *low*-token and scored 2/100). Consensus: build the meter, not the gate — raw count as neutral, mode-stamped telemetry only, never scored, never folded into the composite, never a gate.
+
+**Spike run before implementing** (Winston's recommendation): spun up a real container, ran a real `gemini -p "..."` call, inspected the resulting `.jsonl` transcript directly. Confirmed every `gemini`-type message carries a `tokens` object (`input`/`output`/`cached`/`thoughts`/`tool`/`total`) that the existing parser was silently discarding — capturing it needed no new instrumentation, just reading a field already on disk. Also confirmed, while investigating a specific historical assignment the user asked about, that **token data for any submission processed before this fix is permanently unrecoverable** — no Docker volume ever backed `~/.gemini/tmp` (only `GEMINI.md`/`settings.json` are bind-mounted in guarded mode), so the raw transcript existed only in each container's writable layer and was destroyed by this session's own cleanup pass; even the DB's `session_logs.raw_json` only ever stored a `{prompt, response}` pair, not the original message with token data.
+
+**Implemented:**
+- `session_logs.token_count` (new nullable/default-0 column) + `SessionLogService.parse_gemini_chat_session()` now sums `tokens.total` across every `gemini`-type message in a turn (mirroring the existing `pending_tool_calls` accumulation pattern for thinking-message + final-reply turns).
+- `DatabaseService.get_total_tokens_for_submission()` / `get_total_tokens_for_submissions()` (batch, avoids N+1) — both return 0 rather than None when there's nothing to sum.
+- `GET /api/submission/<id>`, `GET /api/session-logs/<id>`, `GET /api/challenges/<id>/candidates`, and `GET /api/assignments/<id>/candidates` all now expose `total_tokens_used`, mode-stamped via `ai_assistance_mode` (both `get_candidates_for_*` queries gained a `LEFT JOIN session_links` to source it).
+- `frontend.html`: a new "Tokens" column in the ranked candidate grid (styled grey/neutral, distinct from the scored dimension cells) and a `🔤 AI tokens used: N (mode) — informational only` line in the candidate detail panel, both read-only display, no sort/filter/gate wired to either.
+- 5 new parser unit tests (single message, thinking+final accumulation, missing/malformed `tokens` field, no cross-turn leakage) + 1 new DB-level assertion in the existing submit-with-files integration test.
+- **Verified live end-to-end with zero mocks**: real container → real `gemini -p` call → real `/api/submit-with-files` → DB `session_logs.token_count = 48254` → confirmed identical value surfaced through all three API endpoints → confirmed rendering correctly in the actual browser UI (grid column + detail panel), composite score unaffected by the token data. Cleaned up all spike containers/DB rows afterward.
+
+Full suite: **199/199 passing** (was 194). Not committed yet — pending user request.
+
+---
+
 ## Major Fix + Feature (2026-07-11) — Party-mode review of a real candidate dry-run: guarded-mode leak closed, dimension applicability, decision-point challenges, unscored≠scored-0, encoding hardening
 
 User ran their own test as a candidate dry-run: solved a real bug-fix challenge (shared mutable class-state bug, monkeypatch signature bug, 204-vs-200 handling) in ~6 minutes of a 25-minute slot by asking Gemini to "solve it for me" and "what else is required for evaluation criteria", felt confident, then scored 2/100 (PASS/fail). Ran `/bmad-party-mode` with John (PM), Winston (Architect), Murat (Test Architect), and Sally (UX) as independent subagents against the actual challenge + session log + evaluation output, then acted on all findings.
