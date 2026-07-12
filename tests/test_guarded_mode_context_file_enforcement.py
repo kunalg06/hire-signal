@@ -65,14 +65,16 @@ def test_guarded_mode_writes_real_context_files_and_mounts_them_individually(mon
     mount_flags = [a for i, a in enumerate(run_args) if run_args[i - 1] == "-v"]
     assert len(mount_flags) == 2
 
-    # Strip the known container-path+':ro' suffix from the END rather than
+    # Strip the known container-path+':ro,Z' suffix from the END rather than
     # splitting on the first ':' — a Windows host path itself contains a
     # colon (e.g. "C:\...\gemini"), which naive front-splitting breaks.
-    gemini_md_mount = next(m for m in mount_flags if m.endswith(":/home/coder/.gemini/GEMINI.md:ro"))
-    settings_mount = next(m for m in mount_flags if m.endswith(":/home/coder/.gemini/settings.json:ro"))
+    # The trailing ',Z' is an SELinux private-relabel flag (needed on
+    # Oracle Linux/RHEL hosts; a no-op elsewhere) — see docker_service.py.
+    gemini_md_mount = next(m for m in mount_flags if m.endswith(":/home/coder/.gemini/GEMINI.md:ro,Z"))
+    settings_mount = next(m for m in mount_flags if m.endswith(":/home/coder/.gemini/settings.json:ro,Z"))
 
-    gemini_md_host_path = gemini_md_mount[: -len(":/home/coder/.gemini/GEMINI.md:ro")]
-    settings_host_path = settings_mount[: -len(":/home/coder/.gemini/settings.json:ro")]
+    gemini_md_host_path = gemini_md_mount[: -len(":/home/coder/.gemini/GEMINI.md:ro,Z")]
+    settings_host_path = settings_mount[: -len(":/home/coder/.gemini/settings.json:ro,Z")]
 
     # The mounted files must be REAL files with the correct content, not
     # just a string passed to a mocked _run.

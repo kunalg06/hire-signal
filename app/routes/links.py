@@ -1,6 +1,6 @@
 import logging
 
-from flask import Blueprint, jsonify
+from flask import Blueprint, jsonify, request
 from app.services.database_service import DatabaseService
 from app.services.docker_service import DockerService
 from app.utils.helpers import IDGenerator, DateTimeHelper
@@ -100,10 +100,15 @@ def generate_link(assignment_id):
         guarded_mode_enforced=guarded_mode_enforced,
     )
 
+    # Reuse the Host header the employer's own browser used to reach the
+    # dashboard, so the candidate link resolves correctly whether that's
+    # localhost in dev or a VM's public IP/domain in production.
+    hostname = request.host.split(':')[0]
+
     return jsonify({
         "link_id": link_id,
         "assignment_id": assignment_id,
-        "access_url": f"http://localhost:{port}" if port else "N/A",
+        "access_url": f"http://{hostname}:{port}" if port else "N/A",
         "vscode_port": port,
         "expires_at": expires_at
     }), 201

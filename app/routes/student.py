@@ -1,6 +1,6 @@
 import html as html_module
 
-from flask import Blueprint, jsonify
+from flask import Blueprint, jsonify, request
 from app.services.database_service import DatabaseService
 
 student_bp = Blueprint('student', __name__)
@@ -17,7 +17,12 @@ def student_dashboard(link_id):
     assignment_id, port, title, description, criteria, starter_code, expires_at = row
 
     docker_available = port is not None
-    vscode_url = f"http://localhost:{port}/?folder=/workspace" if docker_available else ""
+    # This URL is loaded directly by the candidate's own browser to render
+    # the code-server iframe — it must resolve on the candidate's machine,
+    # not the server's, so it has to reuse the Host header the candidate
+    # used to reach this page (same reasoning as generate_link's access_url).
+    hostname = request.host.split(':')[0]
+    vscode_url = f"http://{hostname}:{port}/?folder=/workspace" if docker_available else ""
 
     html = f"""<!DOCTYPE html>
 <html lang="en">

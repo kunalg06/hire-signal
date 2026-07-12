@@ -187,9 +187,15 @@ class DockerService:
                 # weaker than the already-accepted `HOME=/tmp/x gemini` bypass
                 # documented above, so this trades a broken CLI for a residual
                 # gap no worse than one already in scope.
+                # :Z relabels the mount for exclusive use by this container under
+                # SELinux (enforcing by default on Oracle Linux/RHEL hosts — without
+                # it the container gets a permission-denied read even though the
+                # file is world-readable on the host). Docker treats z/Z as a no-op
+                # on hosts without SELinux (Windows, Ubuntu/AppArmor), so this is
+                # safe everywhere, not just Oracle Linux.
                 mount_args = [
-                    '-v', f'{gemini_dir}/GEMINI.md:/home/coder/.gemini/GEMINI.md:ro',
-                    '-v', f'{gemini_dir}/settings.json:/home/coder/.gemini/settings.json:ro',
+                    '-v', f'{gemini_dir}/GEMINI.md:/home/coder/.gemini/GEMINI.md:ro,Z',
+                    '-v', f'{gemini_dir}/settings.json:/home/coder/.gemini/settings.json:ro,Z',
                 ]
                 guarded_mode_enforced = True
             except Exception as e:
