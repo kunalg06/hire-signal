@@ -1,28 +1,61 @@
-"""System management service for Docker and application lifecycle"""
+"""System management service for Docker and application lifecycle.
 
-import docker
+Docker operations go through the `docker` CLI via subprocess, not the
+docker-py SDK — see docker_service.py's module docstring for why
+(docker==7.0.0 is incompatible with modern requests/urllib3, raising
+"Not supported URL scheme http+docker"). This mirrors that module's
+_run()/inspect-based pattern rather than importing docker-py here too.
+"""
+
+import json
 import logging
 import subprocess
-import os
-from typing import Dict, List, Tuple
-from datetime import datetime
+from typing import Dict, List
+from datetime import datetime, timezone
 
 logger = logging.getLogger(__name__)
+
+
+def _run(args: List[str], check=True, capture=True) -> subprocess.CompletedProcess:
+    return subprocess.run(
+        ['docker'] + args,
+        capture_output=capture,
+        text=True,
+        check=check,
+    )
+
 
 class ManagementService:
     """Manage application lifecycle, Docker services, and system health"""
 
     @staticmethod
-    def get_docker_client():
-        """Get Docker client"""
+    def _docker_available() -> bool:
+        """True if the docker CLI/daemon is reachable, without raising."""
         try:
-            docker_host = os.getenv('DOCKER_HOST')
-            if docker_host:
-                return docker.DockerClient(base_url=docker_host)
-            return docker.from_env()
+            _run(['info'], check=True)
+            return True
         except Exception as e:
             logger.error("Could not connect to Docker: %s", e)
-            return None
+            return False
+
+    @staticmethod
+    def _list_containers(all_containers: bool = False, name_filter: str = None) -> List[Dict]:
+        """List containers as dicts (one `docker inspect` per match) — used
+        instead of parsing `docker ps` table/JSON output, whose CreatedAt
+        and Ports fields are human-formatted strings rather than the
+        structured data the rest of this module expects."""
+        args = ['ps', '-q']
+        if all_containers:
+            args.insert(1, '-a')
+        if name_filter:
+            args += ['--filter', f'name={name_filter}']
+
+        ids = [line for line in _run(args, check=True).stdout.strip().splitlines() if line]
+        if not ids:
+            return []
+
+        inspect_out = _run(['inspect'] + ids, check=True).stdout
+        return json.loads(inspect_out)
 
     @staticmethod
     def get_system_status() -> Dict:
@@ -35,145 +68,112 @@ class ManagementService:
             "errors": []
         }
 
-        try:
-            client = ManagementService.get_docker_client()
-            if not client:
-                status["status"] = "error"
-                status["errors"].append("Docker daemon not accessible")
-                return status
-
-            # Check Docker daemon
-            try:
-                client.ping()
-                status["services"]["docker"] = "running"
-            except Exception as e:
-                status["services"]["docker"] = "not_responding"
-                status["errors"].append(f"Docker daemon error: {str(e)}")
-
-            # Get running containers related to this app
-            try:
-                containers = client.containers.list()
-                assignment_containers = [c for c in containers if 'assignment' in c.name]
-
-                status["containers"]["total_running"] = len(containers)
-                status["containers"]["assignment_containers"] = len(assignment_containers)
-                status["containers"]["containers"] = [
-                    {
-                        "id": c.id[:12],
-                        "name": c.name,
-                        "status": c.status,
-                        "ports": c.ports
-                    }
-                    for c in assignment_containers
-                ]
-            except Exception as e:
-                status["errors"].append(f"Container query error: {str(e)}")
-
-            # Determine overall status
-            if not status["errors"]:
-                status["status"] = "healthy"
-            else:
-                status["status"] = "degraded"
-
-        except Exception as e:
+        if not ManagementService._docker_available():
             status["status"] = "error"
-            status["errors"].append(str(e))
+            status["errors"].append("Docker daemon not accessible")
+            return status
 
+        status["services"]["docker"] = "running"
+
+        try:
+            all_running = ManagementService._list_containers()
+            assignment_containers = [
+                c for c in all_running if 'assignment' in c.get('Name', '')
+            ]
+
+            status["containers"]["total_running"] = len(all_running)
+            status["containers"]["assignment_containers"] = len(assignment_containers)
+            status["containers"]["containers"] = [
+                {
+                    "id": c["Id"][:12],
+                    "name": c["Name"].lstrip('/'),
+                    "status": c["State"]["Status"],
+                    "ports": c.get("NetworkSettings", {}).get("Ports", {}),
+                }
+                for c in assignment_containers
+            ]
+        except Exception as e:
+            status["errors"].append(f"Container query error: {str(e)}")
+
+        status["status"] = "healthy" if not status["errors"] else "degraded"
         return status
+
+    @staticmethod
+    def _age_hours(container: Dict) -> float:
+        created = container.get('Created')
+        created_dt = datetime.fromisoformat(created.replace('Z', '+00:00'))
+        return (datetime.now(timezone.utc) - created_dt).total_seconds() / 3600
 
     @staticmethod
     def cleanup_old_containers(hours_old: int = 24) -> Dict:
         """Clean up containers older than specified hours"""
-        result = {
-            "cleaned": 0,
-            "failed": 0,
-            "errors": []
-        }
+        result = {"cleaned": 0, "failed": 0, "errors": []}
+
+        if not ManagementService._docker_available():
+            result["errors"].append("Docker daemon not accessible")
+            return result
 
         try:
-            client = ManagementService.get_docker_client()
-            if not client:
-                result["errors"].append("Docker daemon not accessible")
-                return result
-
-            containers = client.containers.list(all=True)
-
-            for container in containers:
-                if 'assignment' not in container.name:
-                    continue
-
-                try:
-                    # Check if container is old enough
-                    created = container.attrs.get('Created')
-                    if created:
-                        from datetime import datetime, timezone, timedelta
-                        created_dt = datetime.fromisoformat(created.replace('Z', '+00:00'))
-                        age_hours = (datetime.now(timezone.utc) - created_dt).total_seconds() / 3600
-
-                        if age_hours > hours_old:
-                            if container.status != 'exited':
-                                try:
-                                    container.stop(timeout=5)
-                                except:
-                                    pass
-
-                            try:
-                                container.remove()
-                                result["cleaned"] += 1
-                            except Exception as e:
-                                result["failed"] += 1
-                                result["errors"].append(f"Failed to remove {container.name}: {str(e)}")
-
-                except Exception as e:
-                    result["failed"] += 1
-                    result["errors"].append(f"Error processing {container.name}: {str(e)}")
-
+            containers = ManagementService._list_containers(all_containers=True, name_filter='assignment')
         except Exception as e:
             result["errors"].append(f"Cleanup error: {str(e)}")
+            return result
+
+        for container in containers:
+            name = container.get('Name', '').lstrip('/')
+            try:
+                if ManagementService._age_hours(container) <= hours_old:
+                    continue
+
+                container_id = container['Id']
+                if container.get('State', {}).get('Status') != 'exited':
+                    _run(['stop', '-t', '5', container_id], check=False)
+
+                try:
+                    _run(['rm', container_id], check=True)
+                    result["cleaned"] += 1
+                except Exception as e:
+                    result["failed"] += 1
+                    result["errors"].append(f"Failed to remove {name}: {str(e)}")
+
+            except Exception as e:
+                result["failed"] += 1
+                result["errors"].append(f"Error processing {name}: {str(e)}")
 
         return result
 
     @staticmethod
     def cleanup_all_containers() -> Dict:
         """Force cleanup all assignment containers"""
-        result = {
-            "removed": 0,
-            "failed": 0,
-            "errors": []
-        }
+        result = {"removed": 0, "failed": 0, "errors": []}
+
+        if not ManagementService._docker_available():
+            result["errors"].append("Docker daemon not accessible")
+            return result
 
         try:
-            client = ManagementService.get_docker_client()
-            if not client:
-                result["errors"].append("Docker daemon not accessible")
-                return result
-
-            containers = client.containers.list(all=True)
-
-            for container in containers:
-                if 'assignment' not in container.name:
-                    continue
-
-                try:
-                    if container.status != 'exited':
-                        try:
-                            container.stop(timeout=5)
-                        except:
-                            pass
-
-                    try:
-                        container.remove(force=True)
-                        result["removed"] += 1
-                    except Exception as e:
-                        result["failed"] += 1
-                        result["errors"].append(f"Failed to remove {container.name}: {str(e)}")
-
-                except Exception as e:
-                    result["failed"] += 1
-                    result["errors"].append(f"Error: {str(e)}")
-
+            containers = ManagementService._list_containers(all_containers=True, name_filter='assignment')
         except Exception as e:
             result["errors"].append(f"Cleanup error: {str(e)}")
+            return result
+
+        for container in containers:
+            name = container.get('Name', '').lstrip('/')
+            container_id = container['Id']
+            try:
+                if container.get('State', {}).get('Status') != 'exited':
+                    _run(['stop', '-t', '5', container_id], check=False)
+
+                try:
+                    _run(['rm', '-f', container_id], check=True)
+                    result["removed"] += 1
+                except Exception as e:
+                    result["failed"] += 1
+                    result["errors"].append(f"Failed to remove {name}: {str(e)}")
+
+            except Exception as e:
+                result["failed"] += 1
+                result["errors"].append(f"Error: {str(e)}")
 
         return result
 
@@ -181,20 +181,29 @@ class ManagementService:
     def get_container_info(container_id: str) -> Dict:
         """Get detailed info about a container"""
         try:
-            client = ManagementService.get_docker_client()
-            if not client:
-                return {"error": "Docker daemon not accessible"}
+            inspect_out = _run(['inspect', container_id], check=True).stdout
+            container = json.loads(inspect_out)[0]
 
-            container = client.containers.get(container_id)
+            image = container.get('Config', {}).get('Image', container['Image'][:12])
+
+            memory_stats = {}
+            try:
+                stats_out = _run(
+                    ['stats', '--no-stream', '--format', '{{json .}}', container_id],
+                    check=True,
+                ).stdout
+                memory_stats = json.loads(stats_out.strip())
+            except Exception as e:
+                logger.warning("Could not get stats for %s: %s", container_id, e)
 
             return {
-                "id": container.id[:12],
-                "name": container.name,
-                "status": container.status,
-                "created": container.attrs.get('Created'),
-                "ports": container.ports,
-                "image": container.image.tags[0] if container.image.tags else container.image.id[:12],
-                "memory_stats": container.stats(stream=False).get('memory_stats', {})
+                "id": container["Id"][:12],
+                "name": container["Name"].lstrip('/'),
+                "status": container["State"]["Status"],
+                "created": container.get("Created"),
+                "ports": container.get("NetworkSettings", {}).get("Ports", {}),
+                "image": image,
+                "memory_stats": memory_stats,
             }
 
         except Exception as e:
@@ -204,17 +213,8 @@ class ManagementService:
     def get_logs(container_id: str, lines: int = 100) -> str:
         """Get container logs"""
         try:
-            client = ManagementService.get_docker_client()
-            if not client:
-                return "Error: Docker daemon not accessible"
-
-            container = client.containers.get(container_id)
-            logs = container.logs(tail=lines, stdout=True, stderr=True)
-
-            if isinstance(logs, bytes):
-                return logs.decode('utf-8')
-            return str(logs)
-
+            result = _run(['logs', '--tail', str(lines), container_id], check=True)
+            return result.stdout + result.stderr
         except Exception as e:
             return f"Error: Could not get logs: {str(e)}"
 
@@ -227,13 +227,10 @@ class ManagementService:
             "components": {}
         }
 
-        # Docker health
-        try:
-            client = ManagementService.get_docker_client()
-            client.ping()
+        if ManagementService._docker_available():
             health["components"]["docker"] = "healthy"
-        except Exception as e:
-            health["components"]["docker"] = f"unhealthy: {str(e)}"
+        else:
+            health["components"]["docker"] = "unhealthy: Docker daemon not accessible"
             health["overall"] = "unhealthy"
 
         # Database health
@@ -263,44 +260,24 @@ class ManagementService:
     def restart_container(container_id: str) -> Dict:
         """Restart a specific container"""
         try:
-            client = ManagementService.get_docker_client()
-            if not client:
-                return {"error": "Docker daemon not accessible"}
-
-            container = client.containers.get(container_id)
-            container.restart(timeout=5)
-
+            _run(['restart', '-t', '5', container_id], check=True)
             return {
                 "success": True,
                 "container_id": container_id[:12],
                 "status": "restarted"
             }
-
         except Exception as e:
-            return {
-                "success": False,
-                "error": str(e)
-            }
+            return {"success": False, "error": str(e)}
 
     @staticmethod
     def stop_container(container_id: str) -> Dict:
         """Stop a specific container"""
         try:
-            client = ManagementService.get_docker_client()
-            if not client:
-                return {"error": "Docker daemon not accessible"}
-
-            container = client.containers.get(container_id)
-            container.stop(timeout=5)
-
+            _run(['stop', '-t', '5', container_id], check=True)
             return {
                 "success": True,
                 "container_id": container_id[:12],
                 "status": "stopped"
             }
-
         except Exception as e:
-            return {
-                "success": False,
-                "error": str(e)
-            }
+            return {"success": False, "error": str(e)}
