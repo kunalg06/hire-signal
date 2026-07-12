@@ -1,3 +1,4 @@
+import os
 import sqlite3
 from contextlib import contextmanager
 from app.config import Config
@@ -7,6 +8,13 @@ class Database:
 
     def __init__(self, db_path=None):
         self.db_path = db_path or Config.DB_PATH
+        # data/ is gitignored (it holds the DB file itself), so a fresh
+        # clone has no such directory — sqlite3.connect() doesn't create
+        # parent directories on its own and fails with "unable to open
+        # database file" otherwise.
+        db_dir = os.path.dirname(self.db_path)
+        if db_dir:
+            os.makedirs(db_dir, exist_ok=True)
 
     @contextmanager
     def get_connection(self):
