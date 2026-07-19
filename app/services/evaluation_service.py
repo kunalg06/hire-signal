@@ -1,3 +1,4 @@
+import difflib
 import json
 import logging
 import os
@@ -260,6 +261,31 @@ class EvaluationService:
         return {"applies": True, "prompt": prompt, "option_a": option_a, "option_b": option_b}
 
     @staticmethod
+    def _normalize_code(text: str) -> str:
+        """Whitespace-insensitive normalization for the starter-vs-submitted
+        comparison: strips trailing whitespace per line and leading/trailing
+        blank lines, so a candidate can't dodge the no-change check by
+        adding a trailing space or blank line without touching the logic."""
+        return "\n".join(line.rstrip() for line in (text or "").strip().splitlines())
+
+    @staticmethod
+    def _diff_starter_vs_submitted(starter_code: str, submitted_code: str) -> str:
+        """Unified diff of the starter code against the submitted solution,
+        capped to keep the scoring prompt bounded. Empty string if there's
+        nothing meaningful to diff (no starter code on file)."""
+        if not starter_code:
+            return ""
+        diff_lines = list(difflib.unified_diff(
+            starter_code.splitlines(), (submitted_code or "").splitlines(),
+            fromfile="starter_code", tofile="submitted_solution",
+            lineterm="", n=2,
+        ))
+        MAX_DIFF_LINES = 400
+        if len(diff_lines) > MAX_DIFF_LINES:
+            diff_lines = diff_lines[:MAX_DIFF_LINES] + ["[DIFF TRUNCATED]"]
+        return "\n".join(diff_lines)
+
+    @staticmethod
     def extract_container_files(container_id: str,
                                 workspace: str = '/workspace') -> dict:
         """
@@ -374,29 +400,20 @@ class EvaluationService:
             }
 
         try:
-            # ── Format session logs ────────────────────────────────────────
-            if session_logs:
-                log_lines = []
-                for i, log in enumerate(session_logs[:80], 1):  # cap at 80 interactions
-                    prompt = (log.get('prompt') or '')[:400]
-                    response = (log.get('response_summary') or '')[:400]
-                    log_lines.append(
-                        f"[{i}] Candidate prompt: {prompt}\n"
-                        f"    AI response summary: {response}\n"
-                        f"    File changes: {log.get('file_changes_count', 0)}"
-                    )
-                logs_text = '\n'.join(log_lines)
-            else:
-                logs_text = "No Gemini session logs recorded for this submission."
-
-            # ── Format file snapshot ───────────────────────────────────────
-            if file_snapshot:
-                file_sections = []
-                for path, content in file_snapshot.items():
-                    file_sections.append(f"### {path}\n```\n{content}\n```")
-                files_text = '\n\n'.join(file_sections)
-            else:
-                files_text = "No workspace files retrieved."
+            # ── No-change short-circuit ───────────────────────────────────
+            # Cross-check the submitted solution.py against the assignment's
+            # starter code BEFORE spending an LLM call: a candidate who
+            # submits the challenge unmodified did no work at all, and no
+            # amount of session-log chatter should be able to buy that
+            # submission a real score. Normalized (trailing whitespace /
+            # surrounding blank lines stripped) so a trivial whitespace-only
+            # edit can't be used to dodge the check.
+            starter_code = assignment.get('starter_code') or ''
+            submitted_code = (file_snapshot or {}).get('solution.py', '')
+            no_change_detected = bool(starter_code.strip()) and (
+                EvaluationService._normalize_code(starter_code)
+                == EvaluationService._normalize_code(submitted_code)
+            )
 
             # ── Applicable dimensions + optional decision point (party-mode ─
             # review 2026-07-11): a dimension the challenge never offered a
@@ -410,20 +427,74 @@ class EvaluationService:
                 applicable_dims = list(EvaluationService.DIMENSION_WEIGHTS.keys())
             inapplicable_dims = [d for d in EvaluationService.DIMENSION_WEIGHTS if d not in applicable_dims]
 
-            applicability_note = ""
-            if inapplicable_dims:
-                inapplicable_labels = ", ".join(inapplicable_dims)
-                applicability_note = (
-                    f"\nNOTE: this challenge does not offer a real opportunity to "
-                    f"demonstrate {inapplicable_labels} — still give your best-effort score "
-                    f"and rationale for it, but the platform excludes it from the composite, "
-                    f"so do not let it drag down your judgment of the other dimensions.\n"
+            if no_change_detected:
+                reason = (
+                    "Submitted solution.py is identical to the starter code (whitespace-only "
+                    "differences ignored) — no changes were made, so there is no work to "
+                    "evaluate on any dimension."
                 )
+                dims = {d: {"score": 0, "rationale": reason}
+                        for d in EvaluationService.DIMENSION_WEIGHTS}
+                result = {"dimensions": dims, "recommendation_rationale": reason}
+            else:
+                # ── Format session logs ────────────────────────────────────
+                if session_logs:
+                    log_lines = []
+                    for i, log in enumerate(session_logs[:80], 1):  # cap at 80 interactions
+                        prompt = (log.get('prompt') or '')[:400]
+                        response = (log.get('response_summary') or '')[:400]
+                        log_lines.append(
+                            f"[{i}] Candidate prompt: {prompt}\n"
+                            f"    AI response summary: {response}\n"
+                            f"    File changes: {log.get('file_changes_count', 0)}"
+                        )
+                    logs_text = '\n'.join(log_lines)
+                else:
+                    logs_text = "No Gemini session logs recorded for this submission."
 
-            decision_point = assignment.get('decision_point') or {}
-            decision_point_note = ""
-            if decision_point.get('applies'):
-                decision_point_note = f"""
+                # ── Format file snapshot ───────────────────────────────────
+                if file_snapshot:
+                    file_sections = []
+                    for path, content in file_snapshot.items():
+                        file_sections.append(f"### {path}\n```\n{content}\n```")
+                    files_text = '\n\n'.join(file_sections)
+                else:
+                    files_text = "No workspace files retrieved."
+
+                # ── Starter-vs-submitted diff — lets the judge score the
+                # actual change made instead of just the final file's
+                # appearance, so a large but mostly-copied-from-starter file
+                # can't pass itself off as original work (same starter_code
+                # the no-change check above compares against).
+                diff_text = EvaluationService._diff_starter_vs_submitted(starter_code, submitted_code)
+                if diff_text:
+                    diff_section = f"""
+## Starter Code vs Submitted Solution (unified diff)
+{diff_text}
+
+Score based on what the candidate actually CHANGED relative to the starter code above, not \
+just how the final file looks — code that was already present in the starter deserves no \
+credit. A submission that differs from the starter only trivially (renamed variables, \
+reformatting, comments, no logic change) must score low across every dimension, since it \
+reflects no real problem-solving work.
+"""
+                else:
+                    diff_section = ""
+
+                applicability_note = ""
+                if inapplicable_dims:
+                    inapplicable_labels = ", ".join(inapplicable_dims)
+                    applicability_note = (
+                        f"\nNOTE: this challenge does not offer a real opportunity to "
+                        f"demonstrate {inapplicable_labels} — still give your best-effort score "
+                        f"and rationale for it, but the platform excludes it from the composite, "
+                        f"so do not let it drag down your judgment of the other dimensions.\n"
+                    )
+
+                decision_point = assignment.get('decision_point') or {}
+                decision_point_note = ""
+                if decision_point.get('applies'):
+                    decision_point_note = f"""
 ## Decision Point
 This challenge poses a genuine design choice to the candidate:
 "{decision_point.get('prompt', '')}"
@@ -435,9 +506,9 @@ first_principles_thinking heavily on whether they made and defended a real choic
 — not on whether they picked "the right" option, since both are legitimate.
 """
 
-            # ── Build prompt ───────────────────────────────────────────────
-            weights = EvaluationService.DIMENSION_WEIGHTS
-            scoring_prompt = f"""You are a senior engineering hiring assessor evaluating a candidate's \
+                # ── Build prompt ───────────────────────────────────────────
+                weights = EvaluationService.DIMENSION_WEIGHTS
+                scoring_prompt = f"""You are a senior engineering hiring assessor evaluating a candidate's \
 AI-assisted coding competency. Score the candidate across 8 dimensions based on their session \
 logs and submitted files.
 
@@ -445,7 +516,7 @@ logs and submitted files.
 Title: {assignment.get('title', 'N/A')}
 Description: {assignment.get('description', 'N/A')}
 Evaluation Criteria: {assignment.get('evaluation_criteria', 'N/A')}
-{applicability_note}{decision_point_note}
+{applicability_note}{decision_point_note}{diff_section}
 ## AI Session Logs (candidate prompts → AI responses, chronological)
 {logs_text}
 
@@ -505,17 +576,17 @@ Respond ONLY with valid JSON — no markdown fences, no prose:
   "recommendation_rationale": "3-4 sentence employer-facing summary"
 }}"""
 
-            def _validate_scoring_shape(parsed) -> None:
-                if not isinstance(parsed, dict):
-                    raise ValueError(
-                        f"top-level response is {type(parsed).__name__}, expected object")
+                def _validate_scoring_shape(parsed) -> None:
+                    if not isinstance(parsed, dict):
+                        raise ValueError(
+                            f"top-level response is {type(parsed).__name__}, expected object")
 
-            result = EvaluationService._call_llm_for_json(
-                scoring_prompt, max_tokens=2000,
-                response_schema=EvaluationService._SCORING_RESPONSE_SCHEMA,
-                validate=_validate_scoring_shape,
-            )
-            dims = EvaluationService._parse_dimension_response(result)
+                result = EvaluationService._call_llm_for_json(
+                    scoring_prompt, max_tokens=2000,
+                    response_schema=EvaluationService._SCORING_RESPONSE_SCHEMA,
+                    validate=_validate_scoring_shape,
+                )
+                dims = EvaluationService._parse_dimension_response(result)
         except Exception as e:
             logger.error("8-dimension scoring error: %s", e)
             return _default_result(f"Scoring error: {str(e)[:120]}")
@@ -558,6 +629,24 @@ Respond ONLY with valid JSON — no markdown fences, no prose:
 
         result["composite_score"]      = composite
         result["hire_recommendation"]  = recommendation
+
+        # ── No-AI-engagement flag (party-mode review 2026-07-19 — Amelia's ─
+        # Option C) ─────────────────────────────────────────────────────────
+        # 4 of 8 dimensions (communication_clarity, iteration_quality,
+        # debugging_with_ai, token_efficiency — 50% of DIMENSION_WEIGHTS)
+        # require session-log evidence to score above 0. A real code change
+        # submitted with zero Gemini session logs therefore caps the
+        # composite around 50 regardless of code quality, purely from
+        # missing AI-interaction evidence. Whether that ceiling is a fair
+        # penalty (the platform evaluates AI-collaboration, not raw coding
+        # ability — CLAUDE.md) or a measurement gap is an unresolved product
+        # question (party-mode 2026-07-19, John/PM) — this code deliberately
+        # does NOT decide it. Composite/threshold math above is untouched;
+        # the flag only surfaces the ambiguity for a human to judge (see
+        # submissions.py's auto-flag), consistent with "AI scores inform,
+        # never decide." Mutually exclusive with no_change_detected — a
+        # no-op submission is a separate, already-explained zero, not this.
+        result["no_ai_engagement"] = (not session_logs) and not no_change_detected
 
         return result
 
@@ -612,6 +701,12 @@ Respond ONLY with valid JSON — no markdown fences, no prose:
             # score_8_dimensions()'s _default_result. Callers should flag the
             # submission for manual review rather than trust this score.
             "evaluation_failed":     result.get("evaluation_failed", False),
+            # True when a real code change was submitted with zero Gemini
+            # session logs — a genuine score (not a scoring failure), but
+            # one where 50% of the rubric was unscoreable for lack of
+            # AI-interaction evidence. Callers auto-flag for human review;
+            # see score_8_dimensions()'s no_ai_engagement comment.
+            "no_ai_engagement":      result.get("no_ai_engagement", False),
             # ── Legacy fields (kept for backward compat) ────────────────
             "score":                  composite,
             "feedback":               feedback,

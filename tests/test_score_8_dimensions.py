@@ -464,3 +464,141 @@ def test_decision_point_not_applicable_omitted_from_prompt(monkeypatch, assignme
     monkeypatch.setattr(LLMService, "chat", capture)
     run(assignment)  # default `assignment` fixture has no decision_point key
     assert "Decision Point" not in captured["prompt"]
+
+
+# ── No-change short-circuit: unmodified starter code must score 0 ──────────
+# User-reported gap: a candidate submitting the assignment byte-for-byte
+# as-is could still score ~50 (session-log chatter alone was enough to earn
+# credit on communication/iteration dimensions with no actual code change).
+# score_8_dimensions() now cross-checks solution.py against the assignment's
+# starter_code before ever calling the LLM.
+
+STARTER = "def solve(x):\n    return x\n"
+
+
+def _explode_chat(*args, **kwargs):
+    raise AssertionError("LLMService.chat must not be called for an unchanged submission")
+
+
+def test_identical_submission_scores_zero_without_llm_call(monkeypatch):
+    monkeypatch.setattr(LLMService, "chat", _explode_chat)
+    assignment = {"title": "T", "description": "D", "evaluation_criteria": "C",
+                  "starter_code": STARTER}
+    result = EvaluationService.score_8_dimensions(
+        session_logs=[{"prompt": "solve it for me", "response_summary": "here", "file_changes_count": 0}],
+        file_snapshot={"solution.py": STARTER},
+        assignment=assignment,
+    )
+    assert result["composite_score"] == 0.0
+    assert result["hire_recommendation"] == "pass"
+    assert result.get("evaluation_failed", False) is False  # a real 0, not a scoring failure
+    for d in EXPECTED_DIMS:
+        assert result["dimensions"][d]["score"] == 0
+
+
+def test_whitespace_only_difference_still_counts_as_no_change(monkeypatch):
+    monkeypatch.setattr(LLMService, "chat", _explode_chat)
+    assignment = {"title": "T", "description": "D", "evaluation_criteria": "C",
+                  "starter_code": STARTER}
+    padded = "\n" + STARTER.replace("    return x", "    return x   ") + "\n"
+    result = EvaluationService.score_8_dimensions(
+        session_logs=[], file_snapshot={"solution.py": padded}, assignment=assignment)
+    assert result["composite_score"] == 0.0
+
+
+def test_changed_submission_still_scores_normally_via_llm(monkeypatch):
+    mock_chat(monkeypatch, make_response({d: 80 for d in ALL_DIMS}))
+    assignment = {"title": "T", "description": "D", "evaluation_criteria": "C",
+                  "starter_code": STARTER}
+    changed = "def solve(x):\n    return x * 2\n"
+    result = EvaluationService.score_8_dimensions(
+        session_logs=[], file_snapshot={"solution.py": changed}, assignment=assignment)
+    assert result["composite_score"] == 80.0
+
+
+def test_diff_included_in_prompt_when_code_changed(monkeypatch):
+    captured = {}
+
+    def capture(*args, **kwargs):
+        captured["prompt"] = args[0]
+        return make_response({d: 80 for d in ALL_DIMS})
+    monkeypatch.setattr(LLMService, "chat", capture)
+
+    assignment = {"title": "T", "description": "D", "evaluation_criteria": "C",
+                  "starter_code": STARTER}
+    changed = "def solve(x):\n    return x * 2\n"
+    EvaluationService.score_8_dimensions(
+        session_logs=[], file_snapshot={"solution.py": changed}, assignment=assignment)
+    prompt = captured["prompt"]
+    assert "Starter Code vs Submitted Solution" in prompt
+    assert "return x * 2" in prompt
+
+
+def test_no_starter_code_on_file_skips_no_change_check(monkeypatch, assignment):
+    """Backward compatibility: assignments with no starter_code (e.g. legacy
+    or manually-created, not from the catalog) must score exactly as
+    before — no false-positive zero from an empty-vs-empty comparison."""
+    mock_chat(monkeypatch, make_response({d: 80 for d in ALL_DIMS}))
+    result = EvaluationService.score_8_dimensions(
+        session_logs=[], file_snapshot={}, assignment=assignment)
+    assert result["composite_score"] == 80.0
+
+
+# ── no_ai_engagement flag (party-mode 2026-07-19, Amelia's Option C) ───────
+# A real code change submitted with zero Gemini session logs leaves 4 of 8
+# dimensions unscoreable for lack of AI-interaction evidence (they require
+# session-log text to judge), capping the composite around 50 regardless of
+# code quality. Composite/threshold math is deliberately left untouched —
+# whether that ceiling is a fair penalty or a measurement gap is an
+# unresolved product question, not something this code silently decides.
+# The flag only surfaces the ambiguity for a human via submissions.py's
+# auto-flag (tests/test_evaluation_failure_auto_flag.py).
+
+def test_no_ai_engagement_true_for_real_change_with_no_session_logs(monkeypatch):
+    mock_chat(monkeypatch, make_response({d: 80 for d in ALL_DIMS}))
+    assignment = {"title": "T", "description": "D", "evaluation_criteria": "C",
+                  "starter_code": STARTER}
+    changed = "def solve(x):\n    return x * 2\n"
+    result = EvaluationService.score_8_dimensions(
+        session_logs=[], file_snapshot={"solution.py": changed}, assignment=assignment)
+    assert result["no_ai_engagement"] is True
+
+
+def test_no_ai_engagement_false_when_session_logs_present(monkeypatch):
+    mock_chat(monkeypatch, make_response({d: 80 for d in ALL_DIMS}))
+    assignment = {"title": "T", "description": "D", "evaluation_criteria": "C",
+                  "starter_code": STARTER}
+    changed = "def solve(x):\n    return x * 2\n"
+    result = EvaluationService.score_8_dimensions(
+        session_logs=[{"prompt": "how does this window logic work?",
+                       "response_summary": "explained sliding window", "file_changes_count": 1}],
+        file_snapshot={"solution.py": changed}, assignment=assignment)
+    assert result["no_ai_engagement"] is False
+
+
+def test_no_ai_engagement_false_when_no_change_detected(monkeypatch):
+    """Mutual exclusivity (AC3): a no-op submission already gets a fully
+    explained zero from the no-change short-circuit — it must not ALSO be
+    flagged as no_ai_engagement, which would be a second, redundant, and
+    less specific reason for the same root cause."""
+    monkeypatch.setattr(LLMService, "chat", _explode_chat)
+    assignment = {"title": "T", "description": "D", "evaluation_criteria": "C",
+                  "starter_code": STARTER}
+    result = EvaluationService.score_8_dimensions(
+        session_logs=[], file_snapshot={"solution.py": STARTER}, assignment=assignment)
+    assert result["no_ai_engagement"] is False
+
+
+def test_no_ai_engagement_absent_on_scoring_failure(monkeypatch):
+    """A swallowed LLM/parse failure is a DIFFERENT condition (evaluation_failed)
+    from a genuine no-AI-evidence score — the safe-default path must not also
+    report no_ai_engagement=True, which would misrepresent a scoring failure
+    as a real, judged outcome."""
+    monkeypatch.setattr(LLMService, "chat", lambda *a, **k: "not json")
+    assignment = {"title": "T", "description": "D", "evaluation_criteria": "C",
+                  "starter_code": STARTER}
+    changed = "def solve(x):\n    return x * 2\n"
+    result = EvaluationService.score_8_dimensions(
+        session_logs=[], file_snapshot={"solution.py": changed}, assignment=assignment)
+    assert result["evaluation_failed"] is True
+    assert result.get("no_ai_engagement", False) is False

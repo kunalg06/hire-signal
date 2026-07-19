@@ -96,3 +96,69 @@ def test_successful_evaluation_does_not_auto_flag(db, monkeypatch):
     row = db.get_submission(submission_id)
     is_flagged = row[10] if len(row) > 10 else None
     assert not is_flagged
+
+
+# ── no_ai_engagement auto-flag (party-mode 2026-07-19, Amelia's Option C) ──
+# A real code change submitted with zero Gemini session logs leaves 4 of 8
+# dimensions unscoreable for lack of AI-interaction evidence — a genuine
+# score, not a scoring failure, but one where the platform deliberately
+# doesn't decide whether the resulting low composite is fair (see
+# score_8_dimensions()'s no_ai_engagement comment in evaluation_service.py).
+# Mirrors the evaluation_failed auto-flag above: same flag_submission()/
+# flag_events audit path, no new schema.
+
+def test_no_ai_engagement_result_auto_flags_submission(db, monkeypatch):
+    _, submission_id = make_submission(db)
+
+    def fake_evaluate_code(*a, **k):
+        return {
+            "hire_recommendation": "pass",
+            "composite_score": 38.0,
+            "recommendation_rationale": "Fixed the bug, but no AI session logs to judge",
+            "dimensions": {d: {"score": 50, "rationale": "evidence", "applicable": True}
+                           for d in EvaluationService.DIMENSION_WEIGHTS},
+            "evaluation_failed": False,
+            "no_ai_engagement": True,
+            "score": 38.0,
+            "feedback": "Fixed the bug, but no AI session logs to judge",
+            "evaluation_details": {},
+        }
+    monkeypatch.setattr(EvaluationService, "evaluate_code", fake_evaluate_code)
+
+    assignment = {"id": "a", "title": "T", "description": "D", "evaluation_criteria": "C"}
+    submissions_module.evaluate_submission_files(submission_id, assignment)
+
+    row = db.get_submission(submission_id)
+    is_flagged = row[10] if len(row) > 10 else None
+    flag_reason = row[11] if len(row) > 11 else None
+    assert is_flagged, "submission must be auto-flagged when no_ai_engagement=True"
+    assert "session logs" in flag_reason
+
+
+def test_no_ai_engagement_false_does_not_auto_flag(db, monkeypatch):
+    """Sanity check: a genuine change WITH session logs must not be flagged
+    by this path — proves the auto-flag is conditional on no_ai_engagement,
+    not unconditional on every successful evaluation."""
+    _, submission_id = make_submission(db)
+
+    def fake_evaluate_code(*a, **k):
+        return {
+            "hire_recommendation": "hire",
+            "composite_score": 80.0,
+            "recommendation_rationale": "Solid work, good AI collaboration",
+            "dimensions": {d: {"score": 80, "rationale": "evidence", "applicable": True}
+                           for d in EvaluationService.DIMENSION_WEIGHTS},
+            "evaluation_failed": False,
+            "no_ai_engagement": False,
+            "score": 80.0,
+            "feedback": "Solid work",
+            "evaluation_details": {},
+        }
+    monkeypatch.setattr(EvaluationService, "evaluate_code", fake_evaluate_code)
+
+    assignment = {"id": "a", "title": "T", "description": "D", "evaluation_criteria": "C"}
+    submissions_module.evaluate_submission_files(submission_id, assignment)
+
+    row = db.get_submission(submission_id)
+    is_flagged = row[10] if len(row) > 10 else None
+    assert not is_flagged

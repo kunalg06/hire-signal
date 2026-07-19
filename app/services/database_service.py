@@ -295,14 +295,16 @@ class DatabaseService:
         return totals
 
     def get_link_container_info(self, link_id):
-        """Get container and assignment info for a link. challenge_id (last
+        """Get container and assignment info for a link. challenge_id (7th
         column) lets the caller look up per-challenge dimension applicability
-        / decision-point config via get_challenge_dimension_config()."""
+        / decision-point config via get_challenge_dimension_config().
+        starter_code (8th column) is the pre-solving baseline, used to detect
+        an unchanged submission before scoring."""
         with self.db.get_connection() as conn:
             cursor = conn.cursor()
             cursor.execute('''
                 SELECT sl.container_id, sl.assignment_id, a.title, a.description, a.evaluation_criteria,
-                       sl.created_at, a.challenge_id
+                       sl.created_at, a.challenge_id, a.starter_code
                 FROM session_links sl
                 JOIN assignments a ON sl.assignment_id = a.id
                 WHERE sl.link_id = ?

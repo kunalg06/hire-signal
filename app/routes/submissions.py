@@ -115,6 +115,30 @@ def evaluate_submission_files(submission_id, assignment, session_logs=None,
             logger.warning(
                 "Submission %s auto-flagged: evaluation_failed", submission_id)
 
+        # Party-mode review 2026-07-19 (Amelia's Option C): a real code
+        # change submitted with zero Gemini session logs leaves 4 of 8
+        # dimensions (50% of the rubric) unscoreable for lack of
+        # AI-interaction evidence, capping the composite around 50
+        # regardless of code quality. Whether that's a fair penalty or a
+        # measurement gap is an unresolved product question — rather than
+        # the code silently deciding, auto-flag it via the EXISTING
+        # flag/audit infrastructure so a human makes the call. Mutually
+        # exclusive with the no-change short-circuit (see
+        # score_8_dimensions()'s no_ai_engagement comment), so this never
+        # double-flags a no-op submission alongside its own zero rationale.
+        if evaluation.get("no_ai_engagement"):
+            event_id = IDGenerator.generate_uuid()
+            db_service.flag_submission(
+                submission_id,
+                "Zero Gemini session logs recorded despite a real code change — "
+                "composite reflects code quality only, not AI-collaboration signal. "
+                "Needs human judgment on whether this is disqualifying.",
+                flagged_by="system",
+                event_id=event_id,
+            )
+            logger.warning(
+                "Submission %s auto-flagged: no_ai_engagement", submission_id)
+
     except Exception as e:
         logger.error("Failed to evaluate submission %s: %s", submission_id, e)
 
@@ -150,7 +174,7 @@ def submit_with_files(link_id):
     if not row:
         return jsonify({"detail": "Session not found"}), 404
 
-    container_id, assignment_id, title, description, criteria, container_created_at, challenge_id = row
+    container_id, assignment_id, title, description, criteria, container_created_at, challenge_id, starter_code = row
 
     # applicable_dimensions/decision_point (party-mode review 2026-07-11):
     # None-safe — assignments not linked to a catalog challenge, or
@@ -160,7 +184,10 @@ def submit_with_files(link_id):
     if challenge_id:
         applicable_dimensions, decision_point = db_service.get_challenge_dimension_config(challenge_id)
 
-    # Create assignment dict for evaluation
+    # Create assignment dict for evaluation. starter_code is the pre-solving
+    # baseline — score_8_dimensions() diffs the submitted solution.py against
+    # it to catch an unchanged/no-op submission before it ever reaches the
+    # LLM judge (see AGENT.md's no-change short-circuit entry).
     assignment = {
         "id": assignment_id,
         "title": title,
@@ -168,6 +195,7 @@ def submit_with_files(link_id):
         "evaluation_criteria": criteria,
         "applicable_dimensions": applicable_dimensions,
         "decision_point": decision_point,
+        "starter_code": starter_code,
     }
 
     # Collect files from container
