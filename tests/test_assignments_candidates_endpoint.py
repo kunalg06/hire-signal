@@ -168,3 +168,30 @@ def test_dimension_averages_computed_only_over_evaluated(client, db):
     for d in ALL_DIMS:
         expected = round((candidate_a[d] + candidate_b[d]) / 2, 1)
         assert averages[d] == expected
+
+
+# ── is_flagged/flag_reason visibility (demo-video dry-run, 2026-07-19) ──────
+# get_candidates_for_assignment() previously selected neither column, so a
+# genuinely flagged submission was invisible to any caller (including the
+# frontend's Results tab and Compare Candidates tab) that looked candidates
+# up by assignment_id rather than challenge_id — the two endpoints had
+# silently drifted apart. Mirrors
+# test_candidates_endpoint.py's test_flagged_candidate_marked_in_payload_but_not_hidden
+# for the challenge-scoped sibling.
+
+def test_flagged_candidate_marked_in_payload_but_not_hidden(client, db):
+    assignment_id = make_assignment(db)
+    flagged_sub = make_evaluated_candidate(db, assignment_id, 90)
+    clean_sub = make_evaluated_candidate(db, assignment_id, 80)
+    db.flag_submission(flagged_sub, "suspected plagiarism", flagged_by="employer-1")
+
+    resp = client.get(f"/api/assignments/{assignment_id}/candidates")
+    body = resp.get_json()
+    by_id = {c["submission_id"]: c for c in body["candidates"]}
+
+    assert by_id[flagged_sub]["is_flagged"] is True
+    assert by_id[flagged_sub]["flag_reason"] == "suspected plagiarism"
+    assert by_id[clean_sub]["is_flagged"] is False
+    assert by_id[clean_sub]["flag_reason"] is None
+    # Visibility floor: flagging never removes or reorders past composite rank
+    assert [c["submission_id"] for c in body["candidates"]] == [flagged_sub, clean_sub]

@@ -263,6 +263,7 @@ def get_challenge_candidates(challenge_id):
             'is_flagged':               bool(row[8]),
             'dimensions':               dimensions,
             'ai_assistance_mode':       row[9] if len(row) > 9 else None,
+            'flag_reason':              row[10] if len(row) > 10 else None,
             'total_tokens_used':        tokens_by_submission.get(submission_id, 0),
         })
 

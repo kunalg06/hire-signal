@@ -412,9 +412,15 @@ class DatabaseService:
 
     def get_candidates_for_assignment(self, assignment_id):
         """Return all submissions for an assignment ranked by composite score.
-        ai_assistance_mode (last column) lets the caller mode-stamp any raw
+        ai_assistance_mode (9th column) lets the caller mode-stamp any raw
         token-usage telemetry shown alongside a candidate - see
-        get_candidates_for_challenge()'s docstring for why that matters."""
+        get_candidates_for_challenge()'s docstring for why that matters.
+        is_flagged/flag_reason (10th/11th columns) added so the assignment-
+        scoped candidate view has flag parity with get_candidates_for_challenge()
+        - previously only the challenge-scoped query selected these, so a
+        genuinely flagged submission was invisible to any caller that looked
+        up candidates by assignment_id instead of challenge_id (found during
+        demo-video dry-run walkthrough, 2026-07-19)."""
         with self.db.get_connection() as conn:
             cursor = conn.cursor()
             cursor.execute('''
@@ -427,7 +433,9 @@ class DatabaseService:
                     he.recommendation,
                     he.narrative,
                     he.evaluated_at,
-                    sl.ai_assistance_mode
+                    sl.ai_assistance_mode,
+                    s.is_flagged,
+                    s.flag_reason
                 FROM submissions s
                 LEFT JOIN hire_evaluations he ON s.submission_id = he.submission_id
                 LEFT JOIN session_links sl ON s.link_id = sl.link_id
@@ -456,7 +464,8 @@ class DatabaseService:
                     he.narrative,
                     he.evaluated_at,
                     s.is_flagged,
-                    sl.ai_assistance_mode
+                    sl.ai_assistance_mode,
+                    s.flag_reason
                 FROM submissions s
                 JOIN assignments a ON s.assignment_id = a.id
                 LEFT JOIN hire_evaluations he ON s.submission_id = he.submission_id

@@ -123,6 +123,8 @@ def get_candidates(assignment_id):
             "evaluated_at":             row[7],
             "dimensions":               dimensions,
             "ai_assistance_mode":       row[8] if len(row) > 8 else None,
+            "is_flagged":               bool(row[9]) if len(row) > 9 else False,
+            "flag_reason":              row[10] if len(row) > 10 else None,
             "total_tokens_used":        tokens_by_submission.get(submission_id, 0),
         })
 

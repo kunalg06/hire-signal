@@ -290,7 +290,9 @@ def test_flagged_candidate_marked_in_payload_but_not_hidden(client, db):
     by_id = {c["submission_id"]: c for c in body["candidates"]}
 
     assert by_id[flagged_sub]["is_flagged"] is True
+    assert by_id[flagged_sub]["flag_reason"] == "suspected plagiarism"
     assert by_id[clean_sub]["is_flagged"] is False
+    assert by_id[clean_sub]["flag_reason"] is None
     # Visibility floor: flagging never removes or reorders past composite rank
     assert [c["submission_id"] for c in body["candidates"]] == [flagged_sub, clean_sub]
 

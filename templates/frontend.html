@@ -563,6 +563,7 @@
                     <div style="margin-top:14px; font-size:0.8em; color:#aaa;" id="resAssignment"></div>
                     <div style="margin-top:6px; font-size:0.8em; color:#aaa;" id="resTokens"
                          title="Informational only — raw AI token usage is not scored and does not affect the composite or hire recommendation. Guarded and unguarded sessions naturally use very different amounts, so compare only within the same mode."></div>
+                    <div id="resFlagBanner" style="display:none; margin-top:12px; background:#fff3e0; border-left:3px solid #ff9800; padding:10px 14px; border-radius:6px; font-size:0.85em; color:#e65100;"></div>
                     <div style="margin-top:18px; display:flex; gap:10px; flex-wrap:wrap;">
                         <button class="btn btn-sm btn-outline" onclick="flagCandidate()" id="flagBtn">🚩 Flag for Review</button>
                         <button class="btn btn-sm btn-outline" onclick="overrideCandidate()" id="overrideBtn">✏️ Override Decision</button>
@@ -1193,7 +1194,7 @@ function renderGrid() {
             <td style="font-weight:700; color:#667eea;">#${i+1}</td>
             <td style="color:#888; font-size:0.85em;">${fmtDate(c.submitted_at)}</td>
             <td style="font-weight:700; font-size:1.05em;">${Math.round(score)}</td>
-            <td>${hireBadgeHtml(c.hire_recommendation)}</td>
+            <td>${hireBadgeHtml(c.hire_recommendation)}${c.is_flagged ? ' <span title="Flagged for review" style="color:#e65100; font-weight:700;">🚩</span>' : ''}</td>
             ${dimCells}
             <td>${tokensCell}</td>
             <td style="display:flex; gap:6px;">
@@ -1234,6 +1235,20 @@ async function viewCandidate(submissionId) {
             (typeof tokensUsed === 'number')
                 ? `🔤 AI tokens used: ${tokensUsed.toLocaleString()} (${data.ai_assistance_mode || 'unknown'} mode) — informational only`
                 : '';
+
+        // Flag banner — data.is_flagged/flag_reason/flag_by already come back
+        // from GET /api/submission/<id> (Story 4.3), but nothing rendered them
+        // anywhere until now (found during demo-video dry-run, 2026-07-19).
+        const flagBanner = document.getElementById('resFlagBanner');
+        if (data.is_flagged) {
+            flagBanner.style.display = 'block';
+            flagBanner.innerHTML = `🚩 <strong>Flagged for review</strong>` +
+                (data.flag_by ? ` by ${escHtml(data.flag_by)}` : '') +
+                `: ${escHtml(data.flag_reason || 'No reason provided.')}`;
+        } else {
+            flagBanner.style.display = 'none';
+            flagBanner.innerHTML = '';
+        }
 
         renderSessionLogTimeline(submissionId);
 
@@ -1483,7 +1498,7 @@ async function loadCandidates(confirmed = false) {
                 <td style="font-family:monospace; font-size:0.82em; color:#888;">${c.submission_id.substring(0,8)}…</td>
                 <td style="color:#888;">${fmtDate(c.submitted_at)}</td>
                 <td style="font-weight:700; font-size:1.05em;">${Math.round(score)}</td>
-                <td>${hireBadgeHtml(c.hire_recommendation)}</td>
+                <td>${hireBadgeHtml(c.hire_recommendation)}${c.is_flagged ? ' <span title="Flagged for review" style="color:#e65100; font-weight:700;">🚩</span>' : ''}</td>
                 ${dimCells}
                 <td><button class="btn btn-sm" onclick="viewInResults('${c.submission_id}')">View</button></td>
             </tr>`;
